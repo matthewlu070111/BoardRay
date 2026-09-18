@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="matthewlu070111/BoardRay"
-DEFAULT_AGENT_VERSION="v0.1.1"
+DEFAULT_AGENT_VERSION="v0.2.1"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -117,17 +117,6 @@ curl -fsSL "$release_base/$agent_asset" -o "$tmp_dir/$agent_asset"
 (cd "$tmp_dir" && grep "  $agent_asset\$" SHA256SUMS | sha256sum -c -) || die "Agent checksum verification failed"
 install -m 0755 "$tmp_dir/$agent_asset" "$install_dir/bin/boardray-agent"
 
-xray_url="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$xray_asset"
-curl -fsSL "$xray_url" -o "$tmp_dir/xray.zip"
-printf '%s  %s\n' "$xray_sha" "$tmp_dir/xray.zip" | sha256sum -c - || die "Xray checksum verification failed"
-unzip -p "$tmp_dir/xray.zip" xray > "$tmp_dir/xray"
-install -m 0755 "$tmp_dir/xray" "$install_dir/xray/xray"
-
-acme_url="https://raw.githubusercontent.com/acmesh-official/acme.sh/$ACME_REVISION/acme.sh"
-curl -fsSL "$acme_url" -o "$tmp_dir/acme.sh"
-printf '%s  %s\n' "$ACME_SHA256" "$tmp_dir/acme.sh" | sha256sum -c - || die "acme.sh checksum verification failed"
-install -m 0755 "$tmp_dir/acme.sh" "$install_dir/acme/acme.sh"
-
 if [[ -f "$config_path" ]]; then
   printf 'Existing %s preserved; binaries and services will be updated.\n' "$config_path"
 else
@@ -142,7 +131,14 @@ else
     if [[ "$status" == "404" ]]; then
       die "BoardLess does not implement /api/node/v1/bootstrap yet; create a node and rerun with --node-token"
     fi
-    [[ "$status" == "200" || "$status" == "201" ]] || die "BoardLess bootstrap failed with HTTP $status"
+    if [[ "$status" != "200" && "$status" != "201" ]]; then
+      bootstrap_error="$(jq -r '.error // empty' "$tmp_dir/bootstrap.json" 2>/dev/null || true)"
+      if [[ "$status" == "401" ]]; then
+        die "BoardLess bootstrap rejected the one-time install token (invalid, expired, or already used); generate a fresh install command in BoardLess and run it promptly"
+      fi
+      [[ -z "$bootstrap_error" ]] || die "BoardLess bootstrap failed with HTTP $status: $bootstrap_error"
+      die "BoardLess bootstrap failed with HTTP $status"
+    fi
     node_token="$(jq -er '.nodeToken' "$tmp_dir/bootstrap.json")" || die "BoardLess bootstrap response has no node token"
   fi
   jq -n \
@@ -157,6 +153,17 @@ else
     > "$tmp_dir/config.json"
   install -m 0600 "$tmp_dir/config.json" "$config_path"
 fi
+
+xray_url="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$xray_asset"
+curl -fsSL "$xray_url" -o "$tmp_dir/xray.zip"
+printf '%s  %s\n' "$xray_sha" "$tmp_dir/xray.zip" | sha256sum -c - || die "Xray checksum verification failed"
+unzip -p "$tmp_dir/xray.zip" xray > "$tmp_dir/xray"
+install -m 0755 "$tmp_dir/xray" "$install_dir/xray/xray"
+
+acme_url="https://raw.githubusercontent.com/acmesh-official/acme.sh/$ACME_REVISION/acme.sh"
+curl -fsSL "$acme_url" -o "$tmp_dir/acme.sh"
+printf '%s  %s\n' "$ACME_SHA256" "$tmp_dir/acme.sh" | sha256sum -c - || die "acme.sh checksum verification failed"
+install -m 0755 "$tmp_dir/acme.sh" "$install_dir/acme/acme.sh"
 
 cat > /etc/systemd/system/boardray-xray.service <<EOF
 [Unit]
