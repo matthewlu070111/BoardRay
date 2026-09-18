@@ -135,15 +135,15 @@ else
     IFS=$'\t' read -r reality_private reality_public reality_short_id < <("$install_dir/bin/boardray-agent" keygen)
   fi
   if [[ -n "$install_token" ]]; then
-    bootstrap_body="$(jq -n --arg preset "$preset" --arg version "$agent_version" --arg public "$reality_public" --arg short "$reality_short_id" \
-      '{preset:$preset,agentVersion:$version,generatedOutputs:({} + (if $public == "" then {} else {realityPublicKey:$public,shortId:$short} end))}')"
+    bootstrap_body="$(jq -n --arg token "$install_token" --arg version "$agent_version" --arg public "$reality_public" --arg short "$reality_short_id" \
+      '{installToken:$token,agentVersion:$version,generatedOutputs:({} + (if $public == "" then {} else {realityPublicKey:$public,shortId:$short} end))}')"
     status="$(curl -sS -o "$tmp_dir/bootstrap.json" -w '%{http_code}' -X POST "$panel_url/api/node/v1/bootstrap" \
-      -H "Authorization: Bearer $install_token" -H 'Content-Type: application/json' --data "$bootstrap_body")"
+      -H 'Content-Type: application/json' --data "$bootstrap_body")"
     if [[ "$status" == "404" ]]; then
       die "BoardLess does not implement /api/node/v1/bootstrap yet; create a node and rerun with --node-token"
     fi
     [[ "$status" == "200" || "$status" == "201" ]] || die "BoardLess bootstrap failed with HTTP $status"
-    node_token="$(jq -er '.token' "$tmp_dir/bootstrap.json")" || die "BoardLess bootstrap response has no node token"
+    node_token="$(jq -er '.nodeToken' "$tmp_dir/bootstrap.json")" || die "BoardLess bootstrap response has no node token"
   fi
   jq -n \
     --arg mode "$mode" --arg panel "$panel_url" --arg node_token "$node_token" --arg preset "$preset" \
