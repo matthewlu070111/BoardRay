@@ -1,0 +1,30 @@
+{
+  "mode": "both",
+  "boardless": {
+    "panel_url": "https://boardless.example.com",
+    "node_token": "replace-me",
+    "preset": "vless-tcp-xtls-vision-reality",
+    "reality_target": "www.microsoft.com:443",
+    "reality_private_key": "generated-on-the-node",
+    "reality_public_key": "generated-on-the-node",
+    "reality_short_id": "generated-on-the-node"
+  },
+  "vps_panel": {
+    "panel_url": "https://vps-panel.example.com",
+    "enrollment_token": "replace-me",
+    "announced_version": "v0.20.2"
+  },
+  "runtime": {
+    "state_path": "/var/lib/boardray/state.json",
+    "xray_binary": "/opt/boardray/xray/xray",
+    "xray_config": "/etc/boardray/xray/config.json",
+    "xray_previous": "/etc/boardray/xray/config.previous.json",
+    "xray_service": "boardray-xray.service",
+    "cert_dir": "/etc/boardray/xray/certs",
+    "acme_script": "/opt/boardray/acme/acme.sh",
+    "acme_home": "/var/lib/boardray/acme",
+    "fallback_address": "127.0.0.1:18080",
+    "stats_address": "127.0.0.1:10085",
+    "stale_grace_seconds": 900
+  }
+}
