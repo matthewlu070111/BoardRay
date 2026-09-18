@@ -21,11 +21,11 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 BoardLe
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "panelApiVersion": "v1",
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "3822a609bee6a6c81b233c4f9fbbef5fd6300643e6d9d79ec062c3b0f7c8f9b8",
+    "sha256": "763fdeee84be15fb4590b7cc2eb59821f3fdaee9b0cf4393a4dc053b09686f85",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
