@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,11 +24,15 @@ type renderedConfig struct {
 	} `json:"log"`
 	API struct {
 		Tag      string   `json:"tag"`
-		Listen   string   `json:"listen"`
 		Services []string `json:"services"`
 	} `json:"api"`
-	Policy struct {
+	DNS struct {
+		Servers []string `json:"servers"`
+	} `json:"dns"`
+	Routing renderedRouting `json:"routing"`
+	Policy  struct {
 		Levels map[string]renderedLevel `json:"levels"`
+		System renderedSystem           `json:"system"`
 	} `json:"policy"`
 	Stats     struct{}           `json:"stats"`
 	Inbounds  []renderedInbound  `json:"inbounds"`
@@ -35,23 +40,53 @@ type renderedConfig struct {
 }
 
 type renderedLevel struct {
+	Handshake         int  `json:"handshake"`
+	ConnIdle          int  `json:"connIdle"`
 	StatsUserUplink   bool `json:"statsUserUplink"`
 	StatsUserDownlink bool `json:"statsUserDownlink"`
 }
 
+type renderedSystem struct {
+	StatsInboundUplink    bool `json:"statsInboundUplink"`
+	StatsInboundDownlink  bool `json:"statsInboundDownlink"`
+	StatsOutboundUplink   bool `json:"statsOutboundUplink"`
+	StatsOutboundDownlink bool `json:"statsOutboundDownlink"`
+}
+
+type renderedRouting struct {
+	DomainStrategy string                `json:"domainStrategy"`
+	Rules          []renderedRoutingRule `json:"rules"`
+}
+
+type renderedRoutingRule struct {
+	Type        string   `json:"type"`
+	InboundTag  []string `json:"inboundTag,omitempty"`
+	IP          []string `json:"ip,omitempty"`
+	Protocol    []string `json:"protocol,omitempty"`
+	Domain      []string `json:"domain,omitempty"`
+	OutboundTag string   `json:"outboundTag"`
+}
+
 type renderedInbound struct {
-	Tag            string                 `json:"tag"`
-	Listen         string                 `json:"listen"`
-	Port           int                    `json:"port"`
-	Protocol       string                 `json:"protocol"`
-	Settings       renderedSettings       `json:"settings"`
-	StreamSettings renderedStreamSettings `json:"streamSettings"`
+	Tag            string                  `json:"tag"`
+	Listen         string                  `json:"listen"`
+	Port           int                     `json:"port"`
+	Protocol       string                  `json:"protocol"`
+	Settings       renderedSettings        `json:"settings"`
+	StreamSettings *renderedStreamSettings `json:"streamSettings,omitempty"`
+	Sniffing       *renderedSniffing       `json:"sniffing,omitempty"`
 }
 
 type renderedSettings struct {
-	Clients    []renderedClient   `json:"clients"`
-	Decryption string             `json:"decryption"`
+	Address    string             `json:"address,omitempty"`
+	Clients    []renderedClient   `json:"clients,omitempty"`
+	Decryption string             `json:"decryption,omitempty"`
 	Fallbacks  []renderedFallback `json:"fallbacks,omitempty"`
+}
+
+type renderedSniffing struct {
+	Enabled      bool     `json:"enabled"`
+	DestOverride []string `json:"destOverride"`
 }
 
 type renderedClient struct {
@@ -62,6 +97,7 @@ type renderedClient struct {
 
 type renderedFallback struct {
 	Dest string `json:"dest"`
+	ALPN string `json:"alpn,omitempty"`
 	Xver int    `json:"xver"`
 }
 
@@ -82,6 +118,7 @@ type renderedTLSSettings struct {
 type renderedTLSCertificate struct {
 	CertificateFile string `json:"certificateFile"`
 	KeyFile         string `json:"keyFile"`
+	OCSPStapling    int    `json:"ocspStapling"`
 }
 
 type renderedRealitySettings struct {
@@ -98,12 +135,27 @@ type renderedOutbound struct {
 	Tag      string `json:"tag"`
 }
 
-func renderXray(specs []InboundSpec, statsAddress, fallbackAddress string) ([]byte, error) {
+func renderXray(specs []InboundSpec, statsAddress, fallbackAddress, fallbackH2Address string, fallbackProxyProtocol bool) ([]byte, error) {
 	config := renderedConfig{}
 	config.Log.LogLevel = "warning"
-	config.API.Tag, config.API.Listen, config.API.Services = "api", statsAddress, []string{"StatsService"}
-	config.Policy.Levels = map[string]renderedLevel{"0": {StatsUserUplink: true, StatsUserDownlink: true}}
-	config.Inbounds = make([]renderedInbound, 0, len(specs))
+	config.API.Tag, config.API.Services = "api", []string{"HandlerService", "LoggerService", "StatsService"}
+	config.DNS.Servers = []string{"https://1.1.1.1/dns-query"}
+	config.Routing = renderedRouting{DomainStrategy: "IPIfNonMatch", Rules: []renderedRoutingRule{
+		{Type: "field", InboundTag: []string{"api"}, OutboundTag: "api"},
+		{Type: "field", IP: []string{"geoip:cn", "geoip:private"}, OutboundTag: "block"},
+		{Type: "field", Protocol: []string{"bittorrent"}, OutboundTag: "block"},
+		{Type: "field", Domain: []string{"geosite:category-ads-all"}, OutboundTag: "block"},
+	}}
+	config.Policy.Levels = map[string]renderedLevel{"0": {Handshake: 2, ConnIdle: 220, StatsUserUplink: true, StatsUserDownlink: true}}
+	config.Policy.System = renderedSystem{StatsInboundUplink: true, StatsInboundDownlink: true, StatsOutboundUplink: true, StatsOutboundDownlink: true}
+	statsHost, statsPort, err := splitAddress(statsAddress)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stats address: %w", err)
+	}
+	config.Inbounds = []renderedInbound{{
+		Tag: "api", Listen: statsHost, Port: statsPort, Protocol: "dokodemo-door",
+		Settings: renderedSettings{Address: statsHost},
+	}}
 	config.Outbounds = []renderedOutbound{{Protocol: "freedom", Tag: "direct"}, {Protocol: "blackhole", Tag: "block"}}
 	ports := map[int]bool{}
 	for _, spec := range specs {
@@ -114,7 +166,8 @@ func renderXray(specs []InboundSpec, statsAddress, fallbackAddress string) ([]by
 		inbound := renderedInbound{
 			Tag: "boardray-" + spec.Source + "-" + spec.ID, Listen: spec.Listen, Port: spec.Port, Protocol: "vless",
 			Settings:       renderedSettings{Decryption: "none", Clients: make([]renderedClient, 0, len(spec.Clients))},
-			StreamSettings: renderedStreamSettings{Security: spec.Security},
+			StreamSettings: &renderedStreamSettings{Security: spec.Security},
+			Sniffing:       &renderedSniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}},
 		}
 		for _, client := range spec.Clients {
 			inbound.Settings.Clients = append(inbound.Settings.Clients, renderedClient{ID: client.UUID, Flow: "xtls-rprx-vision", Email: client.Email})
@@ -126,10 +179,14 @@ func renderXray(specs []InboundSpec, statsAddress, fallbackAddress string) ([]by
 			}
 			inbound.StreamSettings.Network = "tcp"
 			inbound.StreamSettings.TLSSettings = &renderedTLSSettings{
-				RejectUnknownSNI: true, MinVersion: "1.2", ServerName: spec.ServerName,
-				Certificates: []renderedTLSCertificate{{CertificateFile: spec.Certificate, KeyFile: spec.PrivateKey}},
+				RejectUnknownSNI: true, MinVersion: "1.3", ServerName: spec.ServerName,
+				Certificates: []renderedTLSCertificate{{CertificateFile: spec.Certificate, KeyFile: spec.PrivateKey, OCSPStapling: 3600}},
 			}
-			inbound.Settings.Fallbacks = []renderedFallback{{Dest: fallbackAddress, Xver: 0}}
+			inbound.Settings.Fallbacks = []renderedFallback{{Dest: fallbackAddress}}
+			if fallbackProxyProtocol {
+				inbound.Settings.Fallbacks[0].Xver = 1
+				inbound.Settings.Fallbacks = append(inbound.Settings.Fallbacks, renderedFallback{ALPN: "h2", Dest: fallbackH2Address, Xver: 1})
+			}
 		case "reality":
 			if spec.RealityTarget == "" || spec.PrivateKey == "" || spec.ShortID == "" {
 				return nil, fmt.Errorf("REALITY secrets missing for %s", spec.ServerName)
@@ -145,6 +202,18 @@ func renderXray(specs []InboundSpec, statsAddress, fallbackAddress string) ([]by
 		config.Inbounds = append(config.Inbounds, inbound)
 	}
 	return json.MarshalIndent(config, "", "  ")
+}
+
+func splitAddress(address string) (string, int, error) {
+	host, portValue, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", 0, err
+	}
+	port, err := strconv.Atoi(portValue)
+	if err != nil || port < 1 || port > 65535 || strings.TrimSpace(host) == "" {
+		return "", 0, errors.New("must contain a host and port")
+	}
+	return host, port, nil
 }
 
 type xrayManager struct {
@@ -179,7 +248,7 @@ func (m *xrayManager) apply(ctx context.Context, specs []InboundSpec) (string, e
 	if err != nil {
 		return "", err
 	}
-	data, err := renderXray(prepared, m.config.StatsAddress, m.config.FallbackAddress)
+	data, err := renderXray(prepared, m.config.StatsAddress, m.config.FallbackAddress, m.config.FallbackH2Address, m.config.FallbackProxyProtocol)
 	if err != nil {
 		return "", err
 	}

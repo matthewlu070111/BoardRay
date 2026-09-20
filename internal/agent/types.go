@@ -39,17 +39,20 @@ type VPSPanelConfig struct {
 }
 
 type RuntimeConfig struct {
-	StatePath         string `json:"state_path"`
-	XrayBinary        string `json:"xray_binary"`
-	XrayConfig        string `json:"xray_config"`
-	XrayPrevious      string `json:"xray_previous"`
-	XrayService       string `json:"xray_service"`
-	CertDir           string `json:"cert_dir"`
-	ACMEScript        string `json:"acme_script"`
-	ACMEHome          string `json:"acme_home"`
-	FallbackAddress   string `json:"fallback_address"`
-	StatsAddress      string `json:"stats_address"`
-	StaleGraceSeconds int64  `json:"stale_grace_seconds"`
+	StatePath             string `json:"state_path"`
+	XrayBinary            string `json:"xray_binary"`
+	XrayConfig            string `json:"xray_config"`
+	XrayPrevious          string `json:"xray_previous"`
+	XrayService           string `json:"xray_service"`
+	CertDir               string `json:"cert_dir"`
+	ACMEScript            string `json:"acme_script"`
+	ACMEHome              string `json:"acme_home"`
+	FallbackAddress       string `json:"fallback_address"`
+	FallbackH2Address     string `json:"fallback_h2_address"`
+	FallbackProxyProtocol bool   `json:"fallback_proxy_protocol"`
+	FallbackSite          string `json:"fallback_site"`
+	StatsAddress          string `json:"stats_address"`
+	StaleGraceSeconds     int64  `json:"stale_grace_seconds"`
 }
 
 type BoardLessSnapshot struct {

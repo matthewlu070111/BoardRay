@@ -48,7 +48,7 @@ func TestGeneratedConfigAcceptedByXray(t *testing.T) {
 	data, err := renderXray([]InboundSpec{
 		{Source: "boardless", ID: "tls", Listen: "127.0.0.1", Port: 18443, Security: "tls", ServerName: "tls.example.com", Certificate: certPath, PrivateKey: keyPath, Clients: []ClientSpec{{UUID: testUUID, Email: "br-user-a"}}},
 		{Source: "vps-panel", ID: "2", Listen: "127.0.0.1", Port: 18444, Security: "reality", ServerName: "www.microsoft.com", RealityTarget: "www.microsoft.com:443", PrivateKey: secrets.PrivateKey, ShortID: secrets.ShortID, Clients: []ClientSpec{{UUID: testUUID, Email: "vp-client-2"}}},
-	}, "127.0.0.1:19085", "127.0.0.1:18080")
+	}, "127.0.0.1:19085", "127.0.0.1:18001", "127.0.0.1:18002", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestRenderTLSAndReality(t *testing.T) {
 		{Source: "boardless", ID: "tls", Listen: "0.0.0.0", Port: 443, Security: "tls", ServerName: "tls.example.com", Certificate: "/cert", PrivateKey: "/key", Clients: []ClientSpec{{UUID: testUUID, Email: "br-user-a"}}},
 		{Source: "vps-panel", ID: "2", Listen: "0.0.0.0", Port: 8443, Security: "reality", ServerName: "www.example.com", RealityTarget: "www.example.com:443", PrivateKey: "private", ShortID: "0123456789abcdef", Clients: []ClientSpec{{UUID: testUUID, Email: "vp-client-2"}}},
 	}
-	data, err := renderXray(values, "127.0.0.1:10085", "127.0.0.1:18080")
+	data, err := renderXray(values, "127.0.0.1:10085", "127.0.0.1:8001", "127.0.0.1:8002", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,8 +121,33 @@ func TestRenderTLSAndReality(t *testing.T) {
 	if err := json.Unmarshal(data, &rendered); err != nil {
 		t.Fatal(err)
 	}
-	if len(rendered.Inbounds) != 2 || rendered.Inbounds[0].StreamSettings.Network != "tcp" || len(rendered.Inbounds[0].Settings.Fallbacks) != 1 || rendered.Inbounds[1].StreamSettings.Network != "raw" {
+	if len(rendered.Inbounds) != 3 || rendered.Inbounds[0].Tag != "api" || rendered.Inbounds[0].Protocol != "dokodemo-door" {
+		t.Fatalf("API inbound = %+v", rendered.Inbounds)
+	}
+	tlsInbound, realityInbound := rendered.Inbounds[1], rendered.Inbounds[2]
+	if tlsInbound.StreamSettings == nil || tlsInbound.StreamSettings.Network != "tcp" || tlsInbound.StreamSettings.TLSSettings.MinVersion != "1.3" || len(tlsInbound.Settings.Fallbacks) != 2 || tlsInbound.Settings.Fallbacks[0].Xver != 1 || tlsInbound.Settings.Fallbacks[1].ALPN != "h2" || realityInbound.StreamSettings == nil || realityInbound.StreamSettings.Network != "raw" {
 		t.Fatalf("rendered config = %+v", rendered)
+	}
+	if len(rendered.Routing.Rules) != 4 || rendered.Routing.Rules[0].OutboundTag != "api" || rendered.Routing.Rules[2].OutboundTag != "block" || rendered.DNS.Servers[0] != "https://1.1.1.1/dns-query" {
+		t.Fatalf("routing and DNS = %+v, %+v", rendered.Routing, rendered.DNS)
+	}
+}
+
+func TestRenderTLSKeepsBuiltInFallbackCompatible(t *testing.T) {
+	data, err := renderXray([]InboundSpec{{
+		Source: "boardless", ID: "tls", Listen: "0.0.0.0", Port: 443, Security: "tls", ServerName: "tls.example.com",
+		Certificate: "/cert", PrivateKey: "/key", Clients: []ClientSpec{{UUID: testUUID, Email: "br-user-a"}},
+	}}, "127.0.0.1:10085", "127.0.0.1:18080", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rendered renderedConfig
+	if err := json.Unmarshal(data, &rendered); err != nil {
+		t.Fatal(err)
+	}
+	fallbacks := rendered.Inbounds[1].Settings.Fallbacks
+	if len(fallbacks) != 1 || fallbacks[0].Dest != "127.0.0.1:18080" || fallbacks[0].Xver != 0 {
+		t.Fatalf("fallbacks = %+v", fallbacks)
 	}
 }
 
@@ -148,7 +173,7 @@ func TestXrayValidationFailureKeepsCurrentConfig(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("old\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manager := &xrayManager{config: RuntimeConfig{XrayBinary: "xray", XrayConfig: configPath, XrayPrevious: filepath.Join(directory, "previous.json"), XrayService: "xray", StatsAddress: "127.0.0.1:10085", FallbackAddress: "127.0.0.1:18080"}}
+	manager := &xrayManager{config: RuntimeConfig{XrayBinary: "xray", XrayConfig: configPath, XrayPrevious: filepath.Join(directory, "previous.json"), XrayService: "xray", StatsAddress: "127.0.0.1:10085", FallbackAddress: "127.0.0.1:8001", FallbackH2Address: "127.0.0.1:8002", FallbackProxyProtocol: true}}
 	manager.run = func(_ context.Context, name string, _ ...string) ([]byte, error) {
 		if name == "xray" {
 			return []byte("bad candidate"), errors.New("exit 1")

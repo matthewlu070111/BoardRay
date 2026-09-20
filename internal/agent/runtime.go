@@ -55,7 +55,9 @@ func Run(ctx context.Context, configPath, version string) error {
 		}
 	}
 	fallbackErr := make(chan error, 1)
-	go func() { fallbackErr <- serveFallback(ctx, config.Runtime.FallbackAddress) }()
+	if !config.Runtime.FallbackProxyProtocol {
+		go func() { fallbackErr <- serveFallback(ctx, config.Runtime.FallbackAddress) }()
+	}
 	configChanged := make(chan struct{}, 1)
 	if value.vps != nil {
 		go runVPSWebSocket(ctx, value.vps, configChanged)

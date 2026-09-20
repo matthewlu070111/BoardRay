@@ -19,6 +19,10 @@ case "$install_dir" in /|/opt|/usr|/etc|/var|/bin|/sbin) printf 'install directo
 
 systemctl disable --now "$service_name.service" boardray-xray.service 2>/dev/null || true
 rm -f "/etc/systemd/system/$service_name.service" /etc/systemd/system/boardray-xray.service
+rm -f /etc/nginx/conf.d/boardray.conf
+if command -v nginx >/dev/null && nginx -t >/dev/null 2>&1; then
+  systemctl reload nginx.service 2>/dev/null || true
+fi
 systemctl daemon-reload
 rm -rf "$install_dir"
 if $purge; then

@@ -89,6 +89,9 @@ func defaults(value *Config) {
 	if value.Runtime.FallbackAddress == "" {
 		value.Runtime.FallbackAddress = "127.0.0.1:18080"
 	}
+	if value.Runtime.FallbackSite == "" {
+		value.Runtime.FallbackSite = "www.lovelive-anime.jp"
+	}
 	if value.Runtime.StatsAddress == "" {
 		value.Runtime.StatsAddress = "127.0.0.1:10085"
 	}
@@ -140,6 +143,19 @@ func validateConfig(value Config) error {
 	}
 	if value.Runtime.StaleGraceSeconds < 0 {
 		return errors.New("stale grace must not be negative")
+	}
+	for name, address := range map[string]string{"stats": value.Runtime.StatsAddress, "fallback": value.Runtime.FallbackAddress} {
+		if _, _, err := splitAddress(address); err != nil {
+			return fmt.Errorf("invalid %s address: %w", name, err)
+		}
+	}
+	if value.Runtime.FallbackProxyProtocol {
+		if _, _, err := splitAddress(value.Runtime.FallbackH2Address); err != nil {
+			return fmt.Errorf("invalid HTTP/2 fallback address: %w", err)
+		}
+	}
+	if strings.TrimSpace(value.Runtime.FallbackSite) == "" || strings.ContainsAny(value.Runtime.FallbackSite, "/?#") {
+		return errors.New("fallback site must be a hostname")
 	}
 	return nil
 }

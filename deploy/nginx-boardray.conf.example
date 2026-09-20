@@ -1,0 +1,34 @@
+# Install as /etc/nginx/conf.d/boardray.conf after replacing the fallback host.
+map $http_upgrade $boardray_connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen 127.0.0.1:8001 proxy_protocol;
+    listen 127.0.0.1:8002 http2 proxy_protocol;
+
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+
+    set $boardray_fallback_host www.lovelive-anime.jp;
+
+    location / {
+        resolver 1.1.1.1 ipv6=off;
+        proxy_pass https://$boardray_fallback_host;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $boardray_fallback_host;
+
+        proxy_set_header Host $boardray_fallback_host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $boardray_connection_upgrade;
+        proxy_set_header X-Real-IP $proxy_protocol_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}

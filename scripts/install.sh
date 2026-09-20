@@ -23,6 +23,8 @@ reality_target=""
 reality_private=""
 reality_public=""
 reality_short_id=""
+fallback_site=""
+fallback_site_set=false
 vps_panel_url=""
 vps_enrollment_token=""
 vps_agent_version="v0.20.2"
@@ -47,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --reality-private-key) need_value "$@"; reality_private="$2"; shift 2 ;;
     --reality-public-key) need_value "$@"; reality_public="$2"; shift 2 ;;
     --reality-short-id) need_value "$@"; reality_short_id="$2"; shift 2 ;;
+    --fallback-site) need_value "$@"; fallback_site="$2"; fallback_site_set=true; shift 2 ;;
     --vps-panel-url) need_value "$@"; vps_panel_url="${2%/}"; shift 2 ;;
     --vps-enrollment-token) need_value "$@"; vps_enrollment_token="$2"; shift 2 ;;
     --vps-agent-version) need_value "$@"; vps_agent_version="$2"; shift 2 ;;
@@ -61,6 +64,7 @@ done
 # Usage: install.sh --mode boardless|vps-panel|both [options]
 # BoardLess: --panel-url URL (--node-token TOKEN|--install-token TOKEN) --preset ID
 # TLS: --domain HOST --acme-email EMAIL
+# Nginx fallback: [--fallback-site HOST]
 # REALITY: --reality-target HOST:PORT [--reality-private-key KEY --reality-public-key KEY --reality-short-id HEX]
 # vps-panel: --vps-panel-url URL --vps-enrollment-token TOKEN
 
@@ -70,6 +74,9 @@ done
 [[ "$install_dir" == /* && "$install_dir" != *[[:space:]]* ]] || die "--install-dir must be an absolute path without spaces"
 case "$install_dir" in /|/opt|/usr|/etc|/var|/bin|/sbin) die "--install-dir is too broad" ;; esac
 [[ "$agent_version" =~ ^v[0-9][A-Za-z0-9._-]*$ ]] || die "invalid --agent-version"
+if $fallback_site_set; then
+  [[ "$fallback_site" =~ ^[A-Za-z0-9.-]+$ && "$fallback_site" != .* && "$fallback_site" != *. ]] || die "invalid --fallback-site"
+fi
 [[ -d /run/systemd/system ]] || die "systemd is required"
 case "$(uname -m)" in
   x86_64|amd64) arch="amd64"; xray_asset="Xray-linux-64.zip"; xray_sha="$XRAY_AMD64_SHA256" ;;
@@ -119,6 +126,9 @@ install -m 0755 "$tmp_dir/$agent_asset" "$install_dir/bin/boardray-agent"
 
 if [[ -f "$config_path" ]]; then
   printf 'Existing %s preserved; binaries and services will be updated.\n' "$config_path"
+  if ! $fallback_site_set; then
+    fallback_site="$(jq -r '.runtime.fallback_site // empty' "$config_path")"
+  fi
 else
   if [[ "$mode" != "vps-panel" && "$preset" == "vless-tcp-xtls-vision-reality" && -n "$install_token" ]]; then
     IFS=$'\t' read -r reality_private reality_public reality_short_id < <("$install_dir/bin/boardray-agent" keygen)
@@ -154,6 +164,9 @@ else
   install -m 0600 "$tmp_dir/config.json" "$config_path"
 fi
 
+[[ -n "$fallback_site" ]] || fallback_site="www.lovelive-anime.jp"
+[[ "$fallback_site" =~ ^[A-Za-z0-9.-]+$ && "$fallback_site" != .* && "$fallback_site" != *. ]] || die "invalid fallback site in existing configuration"
+
 xray_url="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$xray_asset"
 curl -fsSL "$xray_url" -o "$tmp_dir/xray.zip"
 printf '%s  %s\n' "$xray_sha" "$tmp_dir/xray.zip" | sha256sum -c - || die "Xray checksum verification failed"
@@ -165,11 +178,81 @@ curl -fsSL "$acme_url" -o "$tmp_dir/acme.sh"
 printf '%s  %s\n' "$ACME_SHA256" "$tmp_dir/acme.sh" | sha256sum -c - || die "acme.sh checksum verification failed"
 install -m 0755 "$tmp_dir/acme.sh" "$install_dir/acme/acme.sh"
 
+if ! command -v nginx >/dev/null; then
+  command -v apt-get >/dev/null || die "nginx is required and apt-get is unavailable"
+  DEBIAN_FRONTEND=noninteractive apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y nginx
+fi
+
+cat > "$tmp_dir/boardray-nginx.conf" <<EOF
+map \$http_upgrade \$boardray_connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen 127.0.0.1:8001 proxy_protocol;
+    listen 127.0.0.1:8002 http2 proxy_protocol;
+
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    set \$boardray_fallback_host $fallback_site;
+
+    location / {
+        resolver 1.1.1.1 ipv6=off;
+        proxy_pass https://\$boardray_fallback_host;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name \$boardray_fallback_host;
+        proxy_set_header Host \$boardray_fallback_host;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$boardray_connection_upgrade;
+        proxy_set_header X-Real-IP \$proxy_protocol_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+EOF
+
+nginx_config="/etc/nginx/conf.d/boardray.conf"
+if [[ -f "$nginx_config" ]]; then
+  cp "$nginx_config" "$tmp_dir/boardray-nginx.previous.conf"
+fi
+install -m 0644 "$tmp_dir/boardray-nginx.conf" "$nginx_config"
+if ! nginx -t; then
+  if [[ -f "$tmp_dir/boardray-nginx.previous.conf" ]]; then
+    install -m 0644 "$tmp_dir/boardray-nginx.previous.conf" "$nginx_config"
+  else
+    rm -f "$nginx_config"
+  fi
+  die "generated nginx configuration is invalid; previous BoardRay Nginx configuration restored"
+fi
+if ! systemctl enable --now nginx.service || ! systemctl reload nginx.service; then
+  if [[ -f "$tmp_dir/boardray-nginx.previous.conf" ]]; then
+    install -m 0644 "$tmp_dir/boardray-nginx.previous.conf" "$nginx_config"
+  else
+    rm -f "$nginx_config"
+  fi
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx.service 2>/dev/null || true
+  die "nginx could not start with the BoardRay configuration; previous configuration restored"
+fi
+
+jq --arg fallback_site "$fallback_site" \
+  '.runtime.fallback_address = "127.0.0.1:8001"
+   | .runtime.fallback_h2_address = "127.0.0.1:8002"
+   | .runtime.fallback_proxy_protocol = true
+   | .runtime.fallback_site = $fallback_site' \
+  "$config_path" > "$tmp_dir/config-with-nginx.json"
+install -m 0600 "$tmp_dir/config-with-nginx.json" "$config_path"
+
 cat > /etc/systemd/system/boardray-xray.service <<EOF
 [Unit]
 Description=BoardRay managed Xray
-After=network-online.target
-Wants=network-online.target
+After=network-online.target nginx.service
+Wants=network-online.target nginx.service
 
 [Service]
 Type=simple
@@ -185,8 +268,8 @@ EOF
 cat > "/etc/systemd/system/$service_name.service" <<EOF
 [Unit]
 Description=BoardRay dual-control-plane agent
-After=network-online.target
-Wants=network-online.target
+After=network-online.target nginx.service
+Wants=network-online.target nginx.service
 
 [Service]
 Type=simple
@@ -203,5 +286,5 @@ systemctl daemon-reload
 systemctl enable "$service_name.service"
 systemctl restart "$service_name.service"
 
-printf 'BoardRay installed. Ensure public TCP/80 and configured proxy ports are allowed.\n'
+printf 'BoardRay installed with managed Nginx fallback to %s. Ensure public TCP/80 and configured proxy ports are allowed.\n' "$fallback_site"
 printf 'Status: systemctl status %s.service\n' "$service_name"

@@ -25,7 +25,7 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
   "panelApiVersion": "v1",
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "2369f9c894da30b4365d5e64390f3b7b46bf6aaca13bf1d88b65d551029e1949",
+    "sha256": "91b70e418470ce3273ec00c0257425011c1c7565aa180e39ac74b0db2745ca3a",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
@@ -33,7 +33,7 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
       "id": "vless-tcp-xtls-vision",
       "name": "VLESS TCP XTLS Vision",
       "protocol": "vless",
-      "description": "自动 ACME 证书与内置网页回落",
+      "description": "自动 ACME 证书与 Nginx 双 ALPN 回落",
       "config": {
         "server": "{{ input.server }}",
         "port": 443,
@@ -66,6 +66,16 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
           "installArg": "--acme-email",
           "placeholder": "ops@example.com",
           "help": "用于申请和续期 TLS 证书"
+        },
+        {
+          "key": "fallbackSite",
+          "label": "回落站点",
+          "type": "hostname",
+          "required": false,
+          "default": "www.lovelive-anime.jp",
+          "installArg": "--fallback-site",
+          "placeholder": "www.lovelive-anime.jp",
+          "help": "Nginx 会把非 VLESS 的 HTTPS 请求反代到该站点"
         },
         {
           "key": "enableVpsPanel",
@@ -200,7 +210,7 @@ BoardLess 前端硬编码 BoardRay 参数。
 
 ## 一键安装
 
-要求：Debian/Ubuntu、systemd、root、amd64 或 arm64。安装程序不会修改云防火墙；TLS 模式必须允许公网 TCP/80，代理端口也必须放行。
+要求：Debian/Ubuntu、systemd、root、amd64 或 arm64。安装程序会通过 `apt-get` 确保 Nginx 已安装，但不会修改云防火墙；TLS 模式必须允许公网 TCP/80，代理端口也必须放行。
 
 当前 BoardLess 已实现的 node-token 路径：
 
@@ -266,7 +276,23 @@ sudo bash scripts/install.sh \
 
 BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序会把令牌放在 `/api/node/v1/bootstrap` 的 JSON 请求体中；控制面返回的 `nodeToken` 只写入本机 `0600` 配置文件，不会输出到终端。若连接到尚未实现 bootstrap 的旧控制面，安装程序会在收到 `404` 后停止并提示改用 `--node-token`，不会自动降级或泄露令牌。
 
-重复执行安装命令会更新已校验的 Agent、Xray 和 acme.sh，并保留现有 `/etc/boardray/config.json`。
+重复执行安装命令会更新已校验的 Agent、Xray 和 acme.sh，保留现有凭据和控制面配置，并把回落字段迁移到受管 Nginx 配置。
+
+### Nginx 回落
+
+安装和更新都会确保 Nginx 已安装，并生成独立的 `/etc/nginx/conf.d/boardray.conf`。现有 BoardRay 配置会自动迁移为：
+
+```json
+{
+  "fallback_address": "127.0.0.1:8001",
+  "fallback_h2_address": "127.0.0.1:8002",
+  "fallback_proxy_protocol": true
+}
+```
+
+生成的 TLS 入站会把普通回落流量发送到 8001，把协商为 HTTP/2 的流量发送到 8002，并用 PROXY protocol v1 将真实来源地址传给 Nginx。使用 `--fallback-site HOST` 可以修改反代上游；已有配置会保留之前的 `runtime.fallback_site`。
+
+安装器只管理自己的 `boardray.conf`，不会覆盖其他 Nginx 站点。新配置必须先通过 `nginx -t`；失败时会恢复原来的 BoardRay Nginx 配置并停止更新。仓库中的 [`deploy/nginx-boardray.conf.example`](deploy/nginx-boardray.conf.example) 与安装器生成结构一致，可用于检查或手动定制。REALITY 入站不使用 TLS fallback。
 
 ## 运行行为
 
@@ -275,6 +301,8 @@ BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序�
 - 双控制面监听端口冲突时 BoardLess 优先；冲突的 vps-panel Proxy 被跳过并收到失败回执。
 - 所有配置先经 `xray run -test`，再原子替换、重启并探测监听端口；失败会恢复上一份配置。
 - TLS 使用固定并校验的 acme.sh，通过 HTTP-01 签发，提前 30 天续期；Xray 证书续期后自动重启。
+- Xray 启用 API 独立入站、用户与系统流量统计、Cloudflare DoH、广告/BT/中国及私网目标阻断，并为代理入站启用 HTTP/TLS/QUIC 嗅探。
+- TLS 最低版本为 1.3，证书启用 OCSP stapling；Nginx 回落使用独立 HTTP/1.1 与 HTTP/2 端口及 PROXY protocol。
 - REALITY 私钥只存放在节点的 `0600` 配置文件中，BoardLess bootstrap 只接收公钥和 Short ID。
 - Xray 用户统计分别使用 `br-user-*` 和 `vp-client-*`，不会把流量上报给错误的控制面。
 
@@ -285,6 +313,7 @@ BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序�
 /opt/boardray/xray/xray
 /etc/boardray/config.json
 /etc/boardray/xray/config.json
+/etc/nginx/conf.d/boardray.conf
 /var/lib/boardray/state.json
 ```
 

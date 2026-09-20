@@ -117,4 +117,9 @@ func TestManifestMatchesInstallScript(t *testing.T) {
 	if !strings.Contains(string(readme), "<!-- BOARDLESS_BACKEND_REPOSITORY_V1 -->") {
 		t.Fatal("BoardLess recognition code is missing")
 	}
+	for _, required := range []string{"apt-get install --no-install-recommends -y nginx", "nginx -t", "fallback_proxy_protocol = true", "systemctl enable --now nginx.service"} {
+		if !strings.Contains(string(script), required) {
+			t.Fatalf("install script does not enforce Nginx fallback: missing %q", required)
+		}
+	}
 }

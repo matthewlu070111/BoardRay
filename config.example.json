@@ -23,7 +23,10 @@
     "cert_dir": "/etc/boardray/xray/certs",
     "acme_script": "/opt/boardray/acme/acme.sh",
     "acme_home": "/var/lib/boardray/acme",
-    "fallback_address": "127.0.0.1:18080",
+    "fallback_address": "127.0.0.1:8001",
+    "fallback_h2_address": "127.0.0.1:8002",
+    "fallback_proxy_protocol": true,
+    "fallback_site": "www.lovelive-anime.jp",
     "stats_address": "127.0.0.1:10085",
     "stale_grace_seconds": 900
   }
