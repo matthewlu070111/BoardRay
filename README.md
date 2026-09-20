@@ -21,11 +21,11 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "v0.2.1",
+  "version": "v0.3.0",
   "panelApiVersion": "v1",
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "91b70e418470ce3273ec00c0257425011c1c7565aa180e39ac74b0db2745ca3a",
+    "sha256": "68acb0b653df46a4ee81aa4bee31e7fc4a7818deba9d0a1362a4d3122fe3ce16",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
@@ -311,6 +311,8 @@ BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序�
 ```text
 /opt/boardray/bin/boardray-agent
 /opt/boardray/xray/xray
+/opt/boardray/xray/geoip.dat
+/opt/boardray/xray/geosite.dat
 /etc/boardray/config.json
 /etc/boardray/xray/config.json
 /etc/nginx/conf.d/boardray.conf

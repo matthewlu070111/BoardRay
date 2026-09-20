@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="matthewlu070111/BoardRay"
-DEFAULT_AGENT_VERSION="v0.2.1"
+DEFAULT_AGENT_VERSION="v0.3.0"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -171,7 +171,11 @@ xray_url="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$xra
 curl -fsSL "$xray_url" -o "$tmp_dir/xray.zip"
 printf '%s  %s\n' "$xray_sha" "$tmp_dir/xray.zip" | sha256sum -c - || die "Xray checksum verification failed"
 unzip -p "$tmp_dir/xray.zip" xray > "$tmp_dir/xray"
+unzip -p "$tmp_dir/xray.zip" geoip.dat > "$tmp_dir/geoip.dat"
+unzip -p "$tmp_dir/xray.zip" geosite.dat > "$tmp_dir/geosite.dat"
 install -m 0755 "$tmp_dir/xray" "$install_dir/xray/xray"
+install -m 0644 "$tmp_dir/geoip.dat" "$install_dir/xray/geoip.dat"
+install -m 0644 "$tmp_dir/geosite.dat" "$install_dir/xray/geosite.dat"
 
 acme_url="https://raw.githubusercontent.com/acmesh-official/acme.sh/$ACME_REVISION/acme.sh"
 curl -fsSL "$acme_url" -o "$tmp_dir/acme.sh"

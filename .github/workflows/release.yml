@@ -21,6 +21,8 @@ jobs:
           curl -fsSL https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip -o /tmp/xray.zip
           echo '23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae  /tmp/xray.zip' | sha256sum -c -
           unzip -p /tmp/xray.zip xray > /tmp/xray
+          unzip -p /tmp/xray.zip geoip.dat > /tmp/geoip.dat
+          unzip -p /tmp/xray.zip geosite.dat > /tmp/geosite.dat
           chmod +x /tmp/xray
           BOARDRAY_TEST_XRAY=/tmp/xray go test ./...
           go vet ./...
