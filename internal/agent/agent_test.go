@@ -83,6 +83,31 @@ func writeTestCertificate(t *testing.T, directory, domain string) (string, strin
 	return certPath, keyPath
 }
 
+func TestACMEPausesAndRestoresNginxOnFailure(t *testing.T) {
+	var calls []string
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		call := strings.Join(append([]string{name}, args...), " ")
+		calls = append(calls, call)
+		if name == "sh" {
+			return []byte("issuance failed"), errors.New("exit status 1")
+		}
+		return nil, nil
+	}
+	output, err := runACMEWithNginxPaused(context.Background(), run, "sh", "acme.sh", "--issue", "--standalone")
+	if err == nil || string(output) != "issuance failed" {
+		t.Fatalf("result = %q, %v", output, err)
+	}
+	want := []string{
+		"systemctl is-active --quiet nginx.service",
+		"systemctl stop nginx.service",
+		"sh acme.sh --issue --standalone",
+		"systemctl start nginx.service",
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestBoardLessInboundFiltersUsers(t *testing.T) {
 	now := time.Unix(2_000_000_000, 0)
 	var snapshot BoardLessSnapshot

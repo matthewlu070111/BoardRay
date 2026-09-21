@@ -21,11 +21,11 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "v0.3.1",
+  "version": "v0.3.2",
   "panelApiVersion": "v1",
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "8209be2b60e032ca0fb7e5fdba3f3ef99d2f8492c54d41e99f1f8940e9439e6b",
+    "sha256": "85c89cb64e3514c5011cf3d8d8ae1229bd8003926f119de6e53abfd33f9bb432",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
@@ -267,8 +267,8 @@ sudo bash scripts/install.sh \
 
 ```bash
 wget -O /tmp/boardray-install.sh \
-  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.3.1/scripts/install.sh
-echo '8209be2b60e032ca0fb7e5fdba3f3ef99d2f8492c54d41e99f1f8940e9439e6b  /tmp/boardray-install.sh' | sha256sum -c -
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.3.2/scripts/install.sh
+echo '85c89cb64e3514c5011cf3d8d8ae1229bd8003926f119de6e53abfd33f9bb432  /tmp/boardray-install.sh' | sha256sum -c -
 sudo bash /tmp/boardray-install.sh --update --unattended
 ```
 
@@ -322,7 +322,7 @@ BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序�
 - vps-panel 使用原生注册、认证 WebSocket、配置版本、配置回执、主机指标和流量接口。
 - 双控制面监听端口冲突时 BoardLess 优先；冲突的 vps-panel Proxy 被跳过并收到失败回执。
 - 所有配置先经 `xray run -test`，再原子替换、重启并探测监听端口；失败会恢复上一份配置。
-- TLS 使用固定并校验的 acme.sh，通过 HTTP-01 签发，提前 30 天续期；Xray 证书续期后自动重启。
+- TLS 使用固定并校验的 acme.sh，通过 HTTP-01 签发；签发和续期时会短暂停止并自动恢复 Nginx，以释放 TCP/80。证书提前 30 天续期，Xray 在证书更新后自动重启。
 - Xray 启用 API 独立入站、用户与系统流量统计、Cloudflare DoH、广告/BT/中国及私网目标阻断，并为代理入站启用 HTTP/TLS/QUIC 嗅探。
 - TLS 最低版本为 1.3，证书启用 OCSP stapling；Nginx 回落使用独立 HTTP/1.1 与 HTTP/2 端口及 PROXY protocol。
 - REALITY 私钥只存放在节点的 `0600` 配置文件中，BoardLess bootstrap 只接收公钥和 Short ID。

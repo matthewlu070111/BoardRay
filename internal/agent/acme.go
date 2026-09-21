@@ -43,7 +43,7 @@ func ensureCertificate(ctx context.Context, runtime RuntimeConfig, domain, email
 	if email != "" {
 		issue = append(issue, "--accountemail", email)
 	}
-	if output, err := run(ctx, "sh", append([]string{runtime.ACMEScript}, issue...)...); err != nil {
+	if output, err := runACMEWithNginxPaused(ctx, run, "sh", append([]string{runtime.ACMEScript}, issue...)...); err != nil {
 		return "", "", false, fmt.Errorf("ACME issuance failed; verify DNS and TCP/80: %w: %s", err, truncate(output))
 	}
 	staging := filepath.Join(directory, ".staging")
@@ -74,6 +74,24 @@ func ensureCertificate(ctx context.Context, runtime RuntimeConfig, domain, email
 		return "", "", false, err
 	}
 	return certificate, privateKey, true, nil
+}
+
+func runACMEWithNginxPaused(ctx context.Context, run func(context.Context, string, ...string) ([]byte, error), name string, args ...string) ([]byte, error) {
+	if _, err := run(ctx, "systemctl", "is-active", "--quiet", "nginx.service"); err != nil {
+		return run(ctx, name, args...)
+	}
+	if output, err := run(ctx, "systemctl", "stop", "nginx.service"); err != nil {
+		return output, fmt.Errorf("stop nginx for ACME HTTP-01: %w", err)
+	}
+	output, issueErr := run(ctx, name, args...)
+	restoreContext, cancelRestore := context.WithTimeout(context.Background(), 30*time.Second)
+	restartOutput, restartErr := run(restoreContext, "systemctl", "start", "nginx.service")
+	cancelRestore()
+	if restartErr != nil {
+		output = append(output, restartOutput...)
+		return output, errors.Join(issueErr, fmt.Errorf("restore nginx after ACME HTTP-01: %w", restartErr))
+	}
+	return output, issueErr
 }
 
 func certificateValid(certPath, keyPath, domain string, now time.Time, renewBefore time.Duration) (bool, error) {
