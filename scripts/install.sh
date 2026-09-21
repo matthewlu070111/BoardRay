@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="matthewlu070111/BoardRay"
-DEFAULT_AGENT_VERSION="v0.3.0"
+DEFAULT_AGENT_VERSION="v0.3.1"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -29,6 +29,7 @@ vps_panel_url=""
 vps_enrollment_token=""
 vps_agent_version="v0.20.2"
 unattended=false
+update_only=false
 
 die() { printf 'boardray install: %s\n' "$*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --vps-panel-url) need_value "$@"; vps_panel_url="${2%/}"; shift 2 ;;
     --vps-enrollment-token) need_value "$@"; vps_enrollment_token="$2"; shift 2 ;;
     --vps-agent-version) need_value "$@"; vps_agent_version="$2"; shift 2 ;;
+    --update) update_only=true; shift ;;
     --unattended) unattended=true; shift ;;
     --help)
       sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# \?//'
@@ -67,6 +69,7 @@ done
 # Nginx fallback: [--fallback-site HOST]
 # REALITY: --reality-target HOST:PORT [--reality-private-key KEY --reality-public-key KEY --reality-short-id HEX]
 # vps-panel: --vps-panel-url URL --vps-enrollment-token TOKEN
+# Update an existing installation: --update
 
 [[ $EUID -eq 0 ]] || die "run as root"
 [[ "$mode" == "boardless" || "$mode" == "vps-panel" || "$mode" == "both" ]] || die "invalid --mode"
@@ -88,7 +91,13 @@ for command in curl jq unzip sha256sum; do
   command -v "$command" >/dev/null || die "$command is required"
 done
 
-if [[ "$mode" != "vps-panel" ]]; then
+config_dir="/etc/boardray"
+state_dir="/var/lib/boardray"
+config_path="$config_dir/config.json"
+
+if $update_only; then
+  [[ -f "$config_path" ]] || die "--update requires an existing $config_path"
+elif [[ "$mode" != "vps-panel" ]]; then
   [[ -n "$panel_url" && -n "$preset" ]] || die "BoardLess mode requires --panel-url and --preset"
   [[ -n "$node_token" || -n "$install_token" ]] || die "BoardLess mode requires --node-token or --install-token"
   [[ -z "$node_token" || -z "$install_token" ]] || die "use only one BoardLess token type"
@@ -104,13 +113,10 @@ if [[ "$mode" != "vps-panel" ]]; then
     *) die "unsupported preset: $preset" ;;
   esac
 fi
-if [[ "$mode" != "boardless" ]]; then
+if ! $update_only && [[ "$mode" != "boardless" ]]; then
   [[ -n "$vps_panel_url" && -n "$vps_enrollment_token" ]] || die "vps-panel mode requires its URL and enrollment token"
 fi
 
-config_dir="/etc/boardray"
-state_dir="/var/lib/boardray"
-config_path="$config_dir/config.json"
 mkdir -p "$install_dir/bin" "$install_dir/xray" "$install_dir/acme" "$config_dir/xray" "$state_dir"
 chmod 700 "$config_dir" "$config_dir/xray" "$state_dir"
 
@@ -125,7 +131,7 @@ curl -fsSL "$release_base/$agent_asset" -o "$tmp_dir/$agent_asset"
 install -m 0755 "$tmp_dir/$agent_asset" "$install_dir/bin/boardray-agent"
 
 if [[ -f "$config_path" ]]; then
-  printf 'Existing %s preserved; binaries and services will be updated.\n' "$config_path"
+  printf 'Existing %s preserved; BoardRay will be updated to %s.\n' "$config_path" "$agent_version"
   if ! $fallback_site_set; then
     fallback_site="$(jq -r '.runtime.fallback_site // empty' "$config_path")"
   fi

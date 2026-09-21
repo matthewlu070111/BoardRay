@@ -67,7 +67,7 @@ func boardLessInbound(snapshot *BoardLessSnapshot, config *BoardLessConfig, now 
 		return InboundSpec{}, false, errors.New("unsupported BoardLess preset")
 	}
 	for _, user := range snapshot.Users {
-		if user.ID == "" || !validUUID(user.UUID) || user.ExpiresAt <= now.Unix() || user.QuotaBytes <= user.UsedBytes {
+		if user.ID == "" || !validUUID(user.UUID) || (user.ExpiresAt != 0 && user.ExpiresAt <= now.Unix()) || user.QuotaBytes <= user.UsedBytes {
 			continue
 		}
 		value.Clients = append(value.Clients, ClientSpec{UUID: user.UUID, Email: boardLessStatsID(user.ID)})

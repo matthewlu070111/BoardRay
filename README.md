@@ -21,11 +21,11 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "v0.3.0",
+  "version": "v0.3.1",
   "panelApiVersion": "v1",
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "68acb0b653df46a4ee81aa4bee31e7fc4a7818deba9d0a1362a4d3122fe3ce16",
+    "sha256": "8209be2b60e032ca0fb7e5fdba3f3ef99d2f8492c54d41e99f1f8940e9439e6b",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
@@ -259,6 +259,28 @@ sudo bash scripts/install.sh \
   --vps-agent-version v0.20.2 \
   --unattended
 ```
+
+## 更新已有安装
+
+以下命令从 GitHub 的固定版本标签下载安装程序、校验 SHA256，然后更新已有安装。`--update` 会保留
+`/etc/boardray/config.json` 中的面板地址、令牌、REALITY 密钥和回落站点配置，不需要再次提供安装令牌：
+
+```bash
+wget -O /tmp/boardray-install.sh \
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.3.1/scripts/install.sh
+echo '8209be2b60e032ca0fb7e5fdba3f3ef99d2f8492c54d41e99f1f8940e9439e6b  /tmp/boardray-install.sh' | sha256sum -c -
+sudo bash /tmp/boardray-install.sh --update --unattended
+```
+
+更新完成后确认版本和服务状态：
+
+```bash
+/opt/boardray/bin/boardray-agent version
+systemctl status boardray-agent boardray-xray --no-pager
+```
+
+如果最初使用了自定义安装目录或服务名，请在更新命令中继续传入相同的 `--install-dir` 或
+`--service-name`。如需安装指定旧版本，可以额外传入 `--agent-version vX.Y.Z`，并使用对应版本标签下的安装脚本。
 
 ### `mode=both` 运行逻辑
 

@@ -90,11 +90,12 @@ func TestBoardLessInboundFiltersUsers(t *testing.T) {
 	snapshot.Node.Config = NodeConfig{Port: 443, Transport: "tcp", TLS: true, SNI: "node.example.com", Flow: "xtls-rprx-vision"}
 	snapshot.Users = []BoardLessUser{
 		{ID: "active", UUID: testUUID, ExpiresAt: now.Unix() + 10, QuotaBytes: 100, UsedBytes: 1},
+		{ID: "never-expires", UUID: testUUID, ExpiresAt: 0, QuotaBytes: 100, UsedBytes: 1},
 		{ID: "expired", UUID: testUUID, ExpiresAt: now.Unix() - 1, QuotaBytes: 100},
 		{ID: "spent", UUID: testUUID, ExpiresAt: now.Unix() + 10, QuotaBytes: 100, UsedBytes: 100},
 	}
 	value, enabled, err := boardLessInbound(&snapshot, &BoardLessConfig{Preset: PresetTLS, Domain: "node.example.com", ACMEEmail: "ops@example.com"}, now)
-	if err != nil || !enabled || len(value.Clients) != 1 || value.Clients[0].Email != boardLessStatsID("active") {
+	if err != nil || !enabled || len(value.Clients) != 2 || value.Clients[0].Email != boardLessStatsID("active") || value.Clients[1].Email != boardLessStatsID("never-expires") {
 		t.Fatalf("inbound = %+v, %v, %v", value, enabled, err)
 	}
 }
