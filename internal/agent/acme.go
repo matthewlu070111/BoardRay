@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const acmeNginxConfig = "/etc/nginx/conf.d/boardray-acme.conf"
+
 func ensureCertificate(ctx context.Context, runtime RuntimeConfig, domain, email string, run func(context.Context, string, ...string) ([]byte, error)) (string, string, bool, error) {
 	if !validDomain(domain) {
 		return "", "", false, fmt.Errorf("invalid ACME domain %q", domain)
@@ -33,17 +35,11 @@ func ensureCertificate(ctx context.Context, runtime RuntimeConfig, domain, email
 	if _, err := os.Stat(runtime.ACMEScript); err != nil {
 		return "", "", false, fmt.Errorf("ACME script unavailable: %w", err)
 	}
-	base := []string{"--home", runtime.ACMEHome, "--config-home", runtime.ACMEHome, "--cert-home", filepath.Join(runtime.ACMEHome, "certs")}
-	var issue []string
-	if _, err := os.Stat(certificate); err == nil {
-		issue = append(append([]string{}, base...), "--renew", "-d", domain, "--ecc", "--force", "--server", "letsencrypt")
-	} else {
-		issue = append(append([]string{}, base...), "--issue", "--standalone", "-d", domain, "--keylength", "ec-256", "--force", "--server", "letsencrypt")
+	if err := prepareACMENginx(ctx, acmeNginxConfig, domain, run); err != nil {
+		return "", "", false, err
 	}
-	if email != "" {
-		issue = append(issue, "--accountemail", email)
-	}
-	if output, err := runACMEWithNginxPaused(ctx, run, "sh", append([]string{runtime.ACMEScript}, issue...)...); err != nil {
+	issue := acmeIssueArgs(runtime, domain, email)
+	if output, err := run(ctx, "sh", append([]string{runtime.ACMEScript}, issue...)...); err != nil {
 		return "", "", false, fmt.Errorf("ACME issuance failed; verify DNS and TCP/80: %w: %s", err, truncate(output))
 	}
 	staging := filepath.Join(directory, ".staging")
@@ -51,7 +47,7 @@ func ensureCertificate(ctx context.Context, runtime RuntimeConfig, domain, email
 		return "", "", false, err
 	}
 	stagedCertificate, stagedKey := filepath.Join(staging, "fullchain.pem"), filepath.Join(staging, "private.key")
-	install := append(append([]string{}, base...), "--install-cert", "-d", domain, "--ecc", "--fullchain-file", stagedCertificate, "--key-file", stagedKey)
+	install := append(acmeBaseArgs(runtime), "--install-cert", "-d", domain, "--ecc", "--fullchain-file", stagedCertificate, "--key-file", stagedKey)
 	if output, err := run(ctx, "sh", append([]string{runtime.ACMEScript}, install...)...); err != nil {
 		return "", "", false, fmt.Errorf("install ACME certificate: %w: %s", err, truncate(output))
 	}
@@ -76,22 +72,60 @@ func ensureCertificate(ctx context.Context, runtime RuntimeConfig, domain, email
 	return certificate, privateKey, true, nil
 }
 
-func runACMEWithNginxPaused(ctx context.Context, run func(context.Context, string, ...string) ([]byte, error), name string, args ...string) ([]byte, error) {
-	if _, err := run(ctx, "systemctl", "is-active", "--quiet", "nginx.service"); err != nil {
-		return run(ctx, name, args...)
+func acmeIssueArgs(runtime RuntimeConfig, domain, email string) []string {
+	args := append(acmeBaseArgs(runtime),
+		"--issue", "--nginx", acmeNginxConfig,
+		"-d", domain,
+		"--keylength", "ec-256",
+		"--force",
+		"--server", "letsencrypt",
+	)
+	if email != "" {
+		args = append(args, "--accountemail", email)
 	}
-	if output, err := run(ctx, "systemctl", "stop", "nginx.service"); err != nil {
-		return output, fmt.Errorf("stop nginx for ACME HTTP-01: %w", err)
+	return args
+}
+
+func acmeBaseArgs(runtime RuntimeConfig) []string {
+	return []string{
+		"--home", runtime.ACMEHome,
+		"--config-home", runtime.ACMEHome,
+		"--cert-home", filepath.Join(runtime.ACMEHome, "certs"),
 	}
-	output, issueErr := run(ctx, name, args...)
-	restoreContext, cancelRestore := context.WithTimeout(context.Background(), 30*time.Second)
-	restartOutput, restartErr := run(restoreContext, "systemctl", "start", "nginx.service")
-	cancelRestore()
-	if restartErr != nil {
-		output = append(output, restartOutput...)
-		return output, errors.Join(issueErr, fmt.Errorf("restore nginx after ACME HTTP-01: %w", restartErr))
+}
+
+func prepareACMENginx(ctx context.Context, configPath, domain string, run func(context.Context, string, ...string) ([]byte, error)) error {
+	content := []byte(fmt.Sprintf(`# Managed by BoardRay for acme.sh Nginx-mode validation.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name %s;
+
+    location / {
+        return 404;
+    }
+}
+`, domain))
+	previous, readErr := os.ReadFile(configPath)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return fmt.Errorf("read ACME Nginx configuration: %w", readErr)
 	}
-	return output, issueErr
+	if string(previous) == string(content) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return fmt.Errorf("create ACME Nginx configuration directory: %w", err)
+	}
+	if err := atomicWrite(configPath, content, 0o644); err != nil {
+		return fmt.Errorf("write ACME Nginx configuration: %w", err)
+	}
+	if output, err := run(ctx, "nginx", "-t"); err != nil {
+		return fmt.Errorf("validate ACME Nginx configuration: %w: %s", err, truncate(output))
+	}
+	if output, err := run(ctx, "nginx", "-s", "reload"); err != nil {
+		return fmt.Errorf("reload ACME Nginx configuration: %w: %s", err, truncate(output))
+	}
+	return nil
 }
 
 func certificateValid(certPath, keyPath, domain string, now time.Time, renewBefore time.Duration) (bool, error) {

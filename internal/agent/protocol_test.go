@@ -55,9 +55,17 @@ func TestBoardLessClientContract(t *testing.T) {
 
 func TestVPSPanelClientContract(t *testing.T) {
 	var configStatus string
+	var registeredVersion string
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/api/agent/register":
+			var body struct {
+				AgentVersion string `json:"agent_version"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil {
+				t.Fatal("invalid registration body")
+			}
+			registeredVersion = body.AgentVersion
 			return response(http.StatusCreated, `{"agent_id":2,"server_id":3,"agent_token":"agent-token"}`), nil
 		case "/api/agent/config":
 			if r.Header.Get("Authorization") != "Bearer agent-token" {
@@ -75,9 +83,9 @@ func TestVPSPanelClientContract(t *testing.T) {
 			return response(http.StatusNotFound, ""), nil
 		}
 	})}
-	config := &VPSPanelConfig{PanelURL: "https://vps.example", EnrollmentToken: "enrollment", AnnouncedVersion: "v0.20.2"}
+	config := &VPSPanelConfig{PanelURL: "https://vps.example", EnrollmentToken: "enrollment", AnnouncedVersion: VPSPanelVersion}
 	client := &vpsPanelClient{config: config, client: httpClient}
-	if err := client.register(context.Background()); err != nil || config.AgentToken != "agent-token" || config.EnrollmentToken != "" {
+	if err := client.register(context.Background()); err != nil || config.AgentToken != "agent-token" || config.EnrollmentToken != "" || registeredVersion != VPSPanelVersion {
 		t.Fatalf("register = %+v, %v", config, err)
 	}
 	state, err := client.fetch(context.Background())

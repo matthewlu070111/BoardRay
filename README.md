@@ -21,11 +21,12 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "v0.3.2",
+  "version": "v0.4.0",
   "panelApiVersion": "v1",
+  "capabilities": ["nodeTrafficLimit"],
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "85c89cb64e3514c5011cf3d8d8ae1229bd8003926f119de6e53abfd33f9bb432",
+    "sha256": "9ff5d70ae7944921a8b81162ae446904acde896e82ca72aa705b231ce4181f31",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
@@ -110,7 +111,7 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
           "key": "vpsAgentVersion",
           "label": "VPS Panel Agent 兼容版本",
           "type": "text",
-          "default": "v0.20.2",
+          "default": "v0.25.0",
           "installArg": "--vps-agent-version",
           "when": { "key": "enableVpsPanel", "equals": "true" }
         }
@@ -188,7 +189,7 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
           "key": "vpsAgentVersion",
           "label": "VPS Panel Agent 兼容版本",
           "type": "text",
-          "default": "v0.20.2",
+          "default": "v0.25.0",
           "installArg": "--vps-agent-version",
           "when": { "key": "enableVpsPanel", "equals": "true" }
         }
@@ -256,7 +257,7 @@ sudo bash scripts/install.sh \
   --reality-short-id '0123456789abcdef' \
   --vps-panel-url https://vps-panel.example.com \
   --vps-enrollment-token 'ONE_TIME_TOKEN' \
-  --vps-agent-version v0.20.2 \
+  --vps-agent-version v0.25.0 \
   --unattended
 ```
 
@@ -267,8 +268,8 @@ sudo bash scripts/install.sh \
 
 ```bash
 wget -O /tmp/boardray-install.sh \
-  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.3.2/scripts/install.sh
-echo '85c89cb64e3514c5011cf3d8d8ae1229bd8003926f119de6e53abfd33f9bb432  /tmp/boardray-install.sh' | sha256sum -c -
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.0/scripts/install.sh
+echo '9ff5d70ae7944921a8b81162ae446904acde896e82ca72aa705b231ce4181f31  /tmp/boardray-install.sh' | sha256sum -c -
 sudo bash /tmp/boardray-install.sh --update --unattended
 ```
 
@@ -284,13 +285,13 @@ systemctl status boardray-agent boardray-xray --no-pager
 
 ### `mode=both` 运行逻辑
 
-在 BoardLess 新增节点时勾选“同时同步到 VPS Panel”，面板会额外要求 VPS Panel 地址、一次性注册令牌和兼容版本，并生成带 `--mode both` 的安装命令。运行逻辑如下：
+在 BoardLess 新增节点时勾选“同时同步到 VPS Panel”，面板会额外要求 VPS Panel 地址、一次性注册令牌和兼容版本，并生成带 `--mode both` 的安装命令。兼容版本默认 `v0.25.0`，也可用 `--vps-agent-version` 跟随 VPS Panel 的发布节奏自行调整。运行逻辑如下：
 
 1. 安装程序先使用 BoardLess `installToken` 完成 bootstrap，取得正式 `nodeToken`；REALITY 私钥仍只在节点本机生成和保存。
 2. BoardRay 启动后使用 VPS Panel `enrollment_token` 调用 `/api/agent/register`。注册成功后把返回的 `agent_token` 写入权限为 `0600` 的本机配置，并清空本机的一次性注册令牌。
 3. BoardLess 每 30 秒拉取一次完整用户快照并发送心跳；VPS Panel 同时通过认证 WebSocket 触发变更，并由同一轮同步读取 desired state。任一控制面暂时不可用不会停止另一个控制面的同步。
 4. 两边的配置先转换为统一的入站模型，再合并成一份 Xray 配置。BoardLess 管理的入站优先；如果 VPS Panel Proxy 使用了同一端口，该 Proxy 会被跳过，并向 VPS Panel 回报该版本应用失败。
-5. 合并结果必须通过 `xray run -test` 才会原子替换并重启受管 Xray。失败时恢复上一份可用配置，同时把失败结果回报 VPS Panel；不会启动两套互相争抢端口的 Xray。
+5. 合并结果必须通过 `xray run -test` 才会原子替换并重启受管 Xray。验证失败不会写入；写入后的启动或探测失败会保留新配置和错误现场，同时把失败结果回报 VPS Panel。
 6. 用户统计严格按命名空间分流：`br-user-*` 只汇总并上报 BoardLess，`vp-client-*` 只上报 VPS Panel。一个控制面的用户、凭据、到期时间和流量不会发送给另一个控制面。
 7. BoardLess 鉴权收到 `401` 时立即撤销 BoardLess 入站；普通网络失败最多沿用最近快照 15 分钟。VPS Panel 暂时拉取失败时保留最近成功的 desired state，直到收到并成功应用更新版本。
 
@@ -314,16 +315,16 @@ BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序�
 
 生成的 TLS 入站会把普通回落流量发送到 8001，把协商为 HTTP/2 的流量发送到 8002，并用 PROXY protocol v1 将真实来源地址传给 Nginx。使用 `--fallback-site HOST` 可以修改反代上游；已有配置会保留之前的 `runtime.fallback_site`。
 
-安装器只管理自己的 `boardray.conf`，不会覆盖其他 Nginx 站点。新配置必须先通过 `nginx -t`；失败时会恢复原来的 BoardRay Nginx 配置并停止更新。仓库中的 [`deploy/nginx-boardray.conf.example`](deploy/nginx-boardray.conf.example) 与安装器生成结构一致，可用于检查或手动定制。REALITY 入站不使用 TLS fallback。
+安装器只管理自己的 `boardray.conf`，Agent 另行管理仅用于 HTTP-01 的 `boardray-acme.conf`，不会覆盖其他 Nginx 站点。配置会先通过 `nginx -t`；失败时保留现场并停止更新，不写回旧配置。仓库中的 [`deploy/nginx-boardray.conf.example`](deploy/nginx-boardray.conf.example) 与安装器生成结构一致，可用于检查或手动定制。REALITY 入站不使用 TLS fallback。
 
 ## 运行行为
 
 - BoardLess 每 30 秒拉取完整用户快照，失联最多沿用 15 分钟；令牌收到 `401` 时立即撤销其入站。
 - vps-panel 使用原生注册、认证 WebSocket、配置版本、配置回执、主机指标和流量接口。
 - 双控制面监听端口冲突时 BoardLess 优先；冲突的 vps-panel Proxy 被跳过并收到失败回执。
-- 所有配置先经 `xray run -test`，再原子替换、重启并探测监听端口；失败会恢复上一份配置。
-- TLS 使用固定并校验的 acme.sh，通过 HTTP-01 签发；签发和续期时会短暂停止并自动恢复 Nginx，以释放 TCP/80。证书提前 30 天续期，Xray 在证书更新后自动重启。
-- Xray 启用 API 独立入站、用户与系统流量统计、Cloudflare DoH、广告/BT/中国及私网目标阻断，并为代理入站启用 HTTP/TLS/QUIC 嗅探。
+- 所有配置先经 `xray run -test`，再原子替换、重启并探测 API 与代理监听端口；失败时保留新配置和错误现场。
+- TLS 使用固定并校验的 acme.sh，通过 Nginx 模式完成 HTTP-01 签发；Agent 会按实际域名更新独立的 `/etc/nginx/conf.d/boardray-acme.conf`，校验并热重载 Nginx，全程无需停止服务。证书提前 30 天续期，Xray 在证书更新后自动重启。
+- Xray 的本地 API 入站仅启用 `StatsService`，只采集用户上下行流量；同时启用 Cloudflare DoH、广告/BT/中国及私网目标阻断，并为代理入站启用 HTTP/TLS/QUIC 嗅探。
 - TLS 最低版本为 1.3，证书启用 OCSP stapling；Nginx 回落使用独立 HTTP/1.1 与 HTTP/2 端口及 PROXY protocol。
 - REALITY 私钥只存放在节点的 `0600` 配置文件中，BoardLess bootstrap 只接收公钥和 Short ID。
 - Xray 用户统计分别使用 `br-user-*` 和 `vp-client-*`，不会把流量上报给错误的控制面。
@@ -338,6 +339,7 @@ BoardLess 生成的一次性安装命令使用 `--install-token`。安装程序�
 /etc/boardray/config.json
 /etc/boardray/xray/config.json
 /etc/nginx/conf.d/boardray.conf
+/etc/nginx/conf.d/boardray-acme.conf
 /var/lib/boardray/state.json
 ```
 
@@ -368,6 +370,6 @@ bash -n scripts/*.sh
 ## 安全边界
 
 - Xray 固定为 `v26.3.27`，amd64/arm64 下载均校验 SHA-256。
-- vps-panel 兼容目标固定为 `v0.20.2`；BoardRay 不接受其自动升级指令。
+- vps-panel 兼容目标默认 `v0.25.0`，可通过 `--vps-agent-version` 自定义；BoardRay 不接受其自动升级指令。
 - 配置、token、私钥和运行状态不会写入普通日志。
 - Agent 不接管已有第三方 Xray，也不自动修改云防火墙或 DNS。

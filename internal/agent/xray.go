@@ -32,7 +32,6 @@ type renderedConfig struct {
 	Routing renderedRouting `json:"routing"`
 	Policy  struct {
 		Levels map[string]renderedLevel `json:"levels"`
-		System renderedSystem           `json:"system"`
 	} `json:"policy"`
 	Stats     struct{}           `json:"stats"`
 	Inbounds  []renderedInbound  `json:"inbounds"`
@@ -44,13 +43,6 @@ type renderedLevel struct {
 	ConnIdle          int  `json:"connIdle"`
 	StatsUserUplink   bool `json:"statsUserUplink"`
 	StatsUserDownlink bool `json:"statsUserDownlink"`
-}
-
-type renderedSystem struct {
-	StatsInboundUplink    bool `json:"statsInboundUplink"`
-	StatsInboundDownlink  bool `json:"statsInboundDownlink"`
-	StatsOutboundUplink   bool `json:"statsOutboundUplink"`
-	StatsOutboundDownlink bool `json:"statsOutboundDownlink"`
 }
 
 type renderedRouting struct {
@@ -138,7 +130,7 @@ type renderedOutbound struct {
 func renderXray(specs []InboundSpec, statsAddress, fallbackAddress, fallbackH2Address string, fallbackProxyProtocol bool) ([]byte, error) {
 	config := renderedConfig{}
 	config.Log.LogLevel = "warning"
-	config.API.Tag, config.API.Services = "api", []string{"HandlerService", "LoggerService", "StatsService"}
+	config.API.Tag, config.API.Services = "api", []string{"StatsService"}
 	config.DNS.Servers = []string{"https://1.1.1.1/dns-query"}
 	config.Routing = renderedRouting{DomainStrategy: "IPIfNonMatch", Rules: []renderedRoutingRule{
 		{Type: "field", InboundTag: []string{"api"}, OutboundTag: "api"},
@@ -147,7 +139,6 @@ func renderXray(specs []InboundSpec, statsAddress, fallbackAddress, fallbackH2Ad
 		{Type: "field", Domain: []string{"geosite:category-ads-all"}, OutboundTag: "block"},
 	}}
 	config.Policy.Levels = map[string]renderedLevel{"0": {Handshake: 2, ConnIdle: 220, StatsUserUplink: true, StatsUserDownlink: true}}
-	config.Policy.System = renderedSystem{StatsInboundUplink: true, StatsInboundDownlink: true, StatsOutboundUplink: true, StatsOutboundDownlink: true}
 	statsHost, statsPort, err := splitAddress(statsAddress)
 	if err != nil {
 		return nil, fmt.Errorf("invalid stats address: %w", err)
@@ -296,34 +287,32 @@ func (m *xrayManager) apply(ctx context.Context, specs []InboundSpec) (string, e
 	if output, err := m.run(ctx, m.config.XrayBinary, "run", "-test", "-config", candidatePath); err != nil {
 		return "", fmt.Errorf("Xray rejected candidate: %w: %s", err, truncate(output))
 	}
-	hadCurrent := currentErr == nil
-	if hadCurrent {
-		if err := atomicWrite(m.config.XrayPrevious, current, 0o600); err != nil {
-			return "", err
-		}
-	}
 	if err := atomicWrite(m.config.XrayConfig, append(data, '\n'), 0o600); err != nil {
 		return "", err
 	}
 	if output, err := m.run(ctx, "systemctl", "enable", m.config.XrayService); err != nil {
-		return "", m.rollback(ctx, hadCurrent, fmt.Errorf("enable Xray: %w: %s", err, truncate(output)))
+		return "", fmt.Errorf("enable Xray: %w: %s", err, truncate(output))
 	}
 	if output, err := m.run(ctx, "systemctl", "restart", m.config.XrayService); err != nil {
-		return "", m.rollback(ctx, hadCurrent, fmt.Errorf("restart Xray: %w: %s", err, truncate(output)))
+		return "", fmt.Errorf("restart Xray: %w: %s", err, truncate(output))
 	}
 	if err := m.probeSpecs(ctx, prepared); err != nil {
-		return "", m.rollback(ctx, hadCurrent, err)
+		return "", err
 	}
 	return hash, nil
 }
 
 func (m *xrayManager) probeSpecs(ctx context.Context, specs []InboundSpec) error {
+	type listener struct{ name, address string }
+	listeners := []listener{{name: "API", address: m.config.StatsAddress}}
 	for _, spec := range specs {
-		address := net.JoinHostPort("127.0.0.1", fmt.Sprint(spec.Port))
+		listeners = append(listeners, listener{name: "proxy", address: net.JoinHostPort("127.0.0.1", fmt.Sprint(spec.Port))})
+	}
+	for _, listener := range listeners {
 		var probeErr error
 		for attempt := 0; attempt < 10; attempt++ {
 			probeContext, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-			probeErr = m.probe(probeContext, address)
+			probeErr = m.probe(probeContext, listener.address)
 			cancel()
 			if probeErr == nil {
 				break
@@ -331,24 +320,10 @@ func (m *xrayManager) probeSpecs(ctx context.Context, specs []InboundSpec) error
 			time.Sleep(300 * time.Millisecond)
 		}
 		if probeErr != nil {
-			return fmt.Errorf("Xray listener %s unavailable", address)
+			return fmt.Errorf("Xray %s listener %s unavailable", listener.name, listener.address)
 		}
 	}
 	return nil
-}
-
-func (m *xrayManager) rollback(ctx context.Context, hadCurrent bool, applyErr error) error {
-	if hadCurrent {
-		previous, err := os.ReadFile(m.config.XrayPrevious)
-		if err == nil {
-			_ = atomicWrite(m.config.XrayConfig, previous, 0o600)
-			_, _ = m.run(ctx, "systemctl", "restart", m.config.XrayService)
-		}
-	} else {
-		_ = os.Remove(m.config.XrayConfig)
-		_, _ = m.run(ctx, "systemctl", "stop", m.config.XrayService)
-	}
-	return applyErr
 }
 
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {

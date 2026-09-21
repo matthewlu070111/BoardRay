@@ -12,13 +12,12 @@
   "vps_panel": {
     "panel_url": "https://vps-panel.example.com",
     "enrollment_token": "replace-me",
-    "announced_version": "v0.20.2"
+    "announced_version": "v0.25.0"
   },
   "runtime": {
     "state_path": "/var/lib/boardray/state.json",
     "xray_binary": "/opt/boardray/xray/xray",
     "xray_config": "/etc/boardray/xray/config.json",
-    "xray_previous": "/etc/boardray/xray/config.previous.json",
     "xray_service": "boardray-xray.service",
     "cert_dir": "/etc/boardray/xray/certs",
     "acme_script": "/opt/boardray/acme/acme.sh",

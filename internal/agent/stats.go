@@ -70,11 +70,8 @@ func updateBoardLessUsage(state *persistentState, snapshot *BoardLessSnapshot, c
 		if !ok {
 			continue
 		}
-		previous := state.Counters[statsID]
-		up, down := counterDelta(value.Uplink, previous.Uplink), counterDelta(value.Downlink, previous.Downlink)
-		state.Counters[statsID] = value
-		if up != 0 || down != 0 {
-			entries = append(entries, UsageEntry{UserID: userID, UpBytes: up, DownBytes: down})
+		if value.Uplink != 0 || value.Downlink != 0 {
+			entries = append(entries, UsageEntry{UserID: userID, UpBytes: value.Uplink, DownBytes: value.Downlink})
 		}
 	}
 	for len(entries) > 0 {
@@ -85,6 +82,39 @@ func updateBoardLessUsage(state *persistentState, snapshot *BoardLessSnapshot, c
 		state.Pending = append(state.Pending, PendingUsage{ReportID: reportID(snapshot.Node.ID, now), Entries: append([]UsageEntry(nil), entries[:count]...)})
 		entries = entries[count:]
 		now = now.Add(time.Nanosecond)
+	}
+}
+
+func counterDeltas(state *persistentState, current map[string]Counter) map[string]Counter {
+	deltas := make(map[string]Counter, len(current))
+	for statsID, value := range current {
+		previous := state.Counters[statsID]
+		deltas[statsID] = Counter{
+			Uplink:   counterDelta(value.Uplink, previous.Uplink),
+			Downlink: counterDelta(value.Downlink, previous.Downlink),
+		}
+		state.Counters[statsID] = value
+	}
+	return deltas
+}
+
+func countersWithPrefix(current map[string]Counter, prefix string) map[string]Counter {
+	filtered := map[string]Counter{}
+	for statsID, value := range current {
+		if strings.HasPrefix(statsID, prefix) {
+			filtered[statsID] = value
+		}
+	}
+	return filtered
+}
+
+func rewindCounterDeltas(state *persistentState, current, deltas map[string]Counter, prefix string) {
+	for statsID, delta := range deltas {
+		if !strings.HasPrefix(statsID, prefix) {
+			continue
+		}
+		value := current[statsID]
+		state.Counters[statsID] = Counter{Uplink: value.Uplink - delta.Uplink, Downlink: value.Downlink - delta.Downlink}
 	}
 }
 

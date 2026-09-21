@@ -155,7 +155,8 @@ func (a *runtimeAgent) sync(ctx context.Context) error {
 		counters, err := collectStats(statsContext, a.config.Runtime, a.xray.run)
 		cancelStats()
 		if err == nil {
-			updateBoardLessUsage(&a.state, a.state.BoardLessSnapshot, counters, now)
+			boardlessCounters := countersWithPrefix(counters, "br-user-")
+			updateBoardLessUsage(&a.state, a.state.BoardLessSnapshot, counterDeltas(&a.state, boardlessCounters), now)
 		}
 	}
 	applyContext, cancelApply := context.WithTimeout(ctx, 8*time.Minute)
@@ -200,11 +201,14 @@ func (a *runtimeAgent) traffic(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	deltas := counterDeltas(&a.state, counters)
 	if a.boardless != nil {
-		updateBoardLessUsage(&a.state, a.state.BoardLessSnapshot, counters, time.Now().UTC())
-		if err := saveState(a.config.Runtime.StatePath, a.state); err != nil {
-			return err
-		}
+		updateBoardLessUsage(&a.state, a.state.BoardLessSnapshot, deltas, time.Now().UTC())
+	}
+	if err := saveState(a.config.Runtime.StatePath, a.state); err != nil {
+		return err
+	}
+	if a.boardless != nil {
 		for len(a.state.Pending) > 0 {
 			uploadContext, cancelUpload := context.WithTimeout(ctx, 15*time.Second)
 			err := a.boardless.upload(uploadContext, a.state.Pending[0])
@@ -220,10 +224,11 @@ func (a *runtimeAgent) traffic(ctx context.Context) error {
 	}
 	if a.vps != nil {
 		uploadContext, cancelUpload := context.WithTimeout(ctx, 15*time.Second)
-		err := a.vps.reportTraffic(uploadContext, counters)
+		err := a.vps.reportTraffic(uploadContext, deltas)
 		cancelUpload()
 		if err != nil {
-			return err
+			rewindCounterDeltas(&a.state, counters, deltas, "vp-client-")
+			return errors.Join(err, saveState(a.config.Runtime.StatePath, a.state))
 		}
 	}
 	return nil

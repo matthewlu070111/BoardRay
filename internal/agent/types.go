@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	PresetTLS     = "vless-tcp-xtls-vision"
-	PresetReality = "vless-tcp-xtls-vision-reality"
+	PresetTLS       = "vless-tcp-xtls-vision"
+	PresetReality   = "vless-tcp-xtls-vision-reality"
+	VPSPanelVersion = "v0.25.0"
 )
 
 type Config struct {
@@ -42,7 +43,6 @@ type RuntimeConfig struct {
 	StatePath             string `json:"state_path"`
 	XrayBinary            string `json:"xray_binary"`
 	XrayConfig            string `json:"xray_config"`
-	XrayPrevious          string `json:"xray_previous"`
 	XrayService           string `json:"xray_service"`
 	CertDir               string `json:"cert_dir"`
 	ACMEScript            string `json:"acme_script"`

@@ -83,28 +83,67 @@ func writeTestCertificate(t *testing.T, directory, domain string) (string, strin
 	return certPath, keyPath
 }
 
-func TestACMEPausesAndRestoresNginxOnFailure(t *testing.T) {
+func TestPrepareACMENginxWritesAndReloadsConfig(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "boardray-acme.conf")
 	var calls []string
 	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
 		call := strings.Join(append([]string{name}, args...), " ")
 		calls = append(calls, call)
-		if name == "sh" {
-			return []byte("issuance failed"), errors.New("exit status 1")
-		}
 		return nil, nil
 	}
-	output, err := runACMEWithNginxPaused(context.Background(), run, "sh", "acme.sh", "--issue", "--standalone")
-	if err == nil || string(output) != "issuance failed" {
-		t.Fatalf("result = %q, %v", output, err)
+	if err := prepareACMENginx(context.Background(), configPath, "node.example.com", run); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "listen 80;") || !strings.Contains(string(content), "listen [::]:80;") || !strings.Contains(string(content), "server_name node.example.com;") {
+		t.Fatalf("config = %q", content)
 	}
 	want := []string{
-		"systemctl is-active --quiet nginx.service",
-		"systemctl stop nginx.service",
-		"sh acme.sh --issue --standalone",
-		"systemctl start nginx.service",
+		"nginx -t",
+		"nginx -s reload",
 	}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestACMEIssueArgsUseNginxForExistingAndNewCertificates(t *testing.T) {
+	runtime := RuntimeConfig{ACMEHome: "/var/lib/boardray/acme"}
+	args := acmeIssueArgs(runtime, "node.example.com", "ops@example.com")
+	joined := strings.Join(args, " ")
+	for _, required := range []string{"--issue", "--nginx /etc/nginx/conf.d/boardray-acme.conf", "-d node.example.com", "--accountemail ops@example.com"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("arguments do not contain %q: %s", required, joined)
+		}
+	}
+	if strings.Contains(joined, "--standalone") || strings.Contains(joined, "--renew") {
+		t.Fatalf("arguments retain the old validation mode: %s", joined)
+	}
+}
+
+func TestPrepareACMENginxKeepsFailedConfigForDiagnosis(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "boardray-acme.conf")
+	previous := []byte("# previous\n")
+	if err := os.WriteFile(configPath, previous, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		return []byte("invalid config"), errors.New("exit status 1")
+	}
+	if err := prepareACMENginx(context.Background(), configPath, "node.example.com", run); err == nil {
+		t.Fatal("expected validation error")
+	}
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) == string(previous) || !strings.Contains(string(content), "server_name node.example.com;") {
+		t.Fatalf("failed config was not preserved: %q", content)
 	}
 }
 
@@ -116,11 +155,12 @@ func TestBoardLessInboundFiltersUsers(t *testing.T) {
 	snapshot.Users = []BoardLessUser{
 		{ID: "active", UUID: testUUID, ExpiresAt: now.Unix() + 10, QuotaBytes: 100, UsedBytes: 1},
 		{ID: "never-expires", UUID: testUUID, ExpiresAt: 0, QuotaBytes: 100, UsedBytes: 1},
+		{ID: "unlimited", UUID: testUUID, ExpiresAt: 0, QuotaBytes: 0, UsedBytes: 1_000},
 		{ID: "expired", UUID: testUUID, ExpiresAt: now.Unix() - 1, QuotaBytes: 100},
 		{ID: "spent", UUID: testUUID, ExpiresAt: now.Unix() + 10, QuotaBytes: 100, UsedBytes: 100},
 	}
 	value, enabled, err := boardLessInbound(&snapshot, &BoardLessConfig{Preset: PresetTLS, Domain: "node.example.com", ACMEEmail: "ops@example.com"}, now)
-	if err != nil || !enabled || len(value.Clients) != 2 || value.Clients[0].Email != boardLessStatsID("active") || value.Clients[1].Email != boardLessStatsID("never-expires") {
+	if err != nil || !enabled || len(value.Clients) != 3 || value.Clients[0].Email != boardLessStatsID("active") || value.Clients[1].Email != boardLessStatsID("never-expires") || value.Clients[2].Email != boardLessStatsID("unlimited") {
 		t.Fatalf("inbound = %+v, %v, %v", value, enabled, err)
 	}
 }
@@ -149,6 +189,9 @@ func TestRenderTLSAndReality(t *testing.T) {
 	}
 	if len(rendered.Inbounds) != 3 || rendered.Inbounds[0].Tag != "api" || rendered.Inbounds[0].Protocol != "dokodemo-door" {
 		t.Fatalf("API inbound = %+v", rendered.Inbounds)
+	}
+	if len(rendered.API.Services) != 1 || rendered.API.Services[0] != "StatsService" {
+		t.Fatalf("API services = %+v", rendered.API.Services)
 	}
 	tlsInbound, realityInbound := rendered.Inbounds[1], rendered.Inbounds[2]
 	if tlsInbound.StreamSettings == nil || tlsInbound.StreamSettings.Network != "tcp" || tlsInbound.StreamSettings.TLSSettings.MinVersion != "1.3" || len(tlsInbound.Settings.Fallbacks) != 2 || tlsInbound.Settings.Fallbacks[0].Xver != 1 || tlsInbound.Settings.Fallbacks[1].ALPN != "h2" || realityInbound.StreamSettings == nil || realityInbound.StreamSettings.Network != "raw" {
@@ -184,12 +227,29 @@ func TestStatsAndPersistentDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := persistentState{Counters: map[string]Counter{statsID: {Uplink: 7, Downlink: 30}}}
+	state := persistentState{Counters: map[string]Counter{statsID: {Uplink: 7, Downlink: 30}, "vp-client-2": {Uplink: 4, Downlink: 5}}}
+	deltas := counterDeltas(&state, map[string]Counter{statsID: current[statsID], "vp-client-2": {Uplink: 9, Downlink: 11}})
 	var snapshot BoardLessSnapshot
 	snapshot.Node.ID = "node_1"
-	updateBoardLessUsage(&state, &snapshot, current, time.Unix(1, 0))
+	updateBoardLessUsage(&state, &snapshot, deltas, time.Unix(1, 0))
 	if len(state.Pending) != 1 || state.Pending[0].Entries[0].UpBytes != 3 || state.Pending[0].Entries[0].DownBytes != 20 {
 		t.Fatalf("pending = %+v", state.Pending)
+	}
+	if deltas["vp-client-2"] != (Counter{Uplink: 5, Downlink: 6}) {
+		t.Fatalf("vps delta = %+v", deltas["vp-client-2"])
+	}
+}
+
+func TestVPSPanelVersionDefaultAndOverride(t *testing.T) {
+	defaulted := Config{VPSPanel: &VPSPanelConfig{}}
+	defaults(&defaulted)
+	if defaulted.VPSPanel.AnnouncedVersion != VPSPanelVersion {
+		t.Fatalf("default version = %q", defaulted.VPSPanel.AnnouncedVersion)
+	}
+	custom := Config{VPSPanel: &VPSPanelConfig{AnnouncedVersion: "v0.26.1"}}
+	defaults(&custom)
+	if custom.VPSPanel.AnnouncedVersion != "v0.26.1" {
+		t.Fatalf("custom version = %q", custom.VPSPanel.AnnouncedVersion)
 	}
 }
 
@@ -199,7 +259,7 @@ func TestXrayValidationFailureKeepsCurrentConfig(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("old\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manager := &xrayManager{config: RuntimeConfig{XrayBinary: "xray", XrayConfig: configPath, XrayPrevious: filepath.Join(directory, "previous.json"), XrayService: "xray", StatsAddress: "127.0.0.1:10085", FallbackAddress: "127.0.0.1:8001", FallbackH2Address: "127.0.0.1:8002", FallbackProxyProtocol: true}}
+	manager := &xrayManager{config: RuntimeConfig{XrayBinary: "xray", XrayConfig: configPath, XrayService: "xray", StatsAddress: "127.0.0.1:10085", FallbackAddress: "127.0.0.1:8001", FallbackH2Address: "127.0.0.1:8002", FallbackProxyProtocol: true}}
 	manager.run = func(_ context.Context, name string, _ ...string) ([]byte, error) {
 		if name == "xray" {
 			return []byte("bad candidate"), errors.New("exit 1")
@@ -214,5 +274,44 @@ func TestXrayValidationFailureKeepsCurrentConfig(t *testing.T) {
 	data, _ := os.ReadFile(configPath)
 	if string(data) != "old\n" {
 		t.Fatalf("current config changed: %q", data)
+	}
+}
+
+func TestXrayRestartFailureKeepsNewConfig(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(configPath, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := &xrayManager{config: RuntimeConfig{XrayBinary: "xray", XrayConfig: configPath, XrayService: "xray", StatsAddress: "127.0.0.1:10085", FallbackAddress: "127.0.0.1:8001", FallbackH2Address: "127.0.0.1:8002", FallbackProxyProtocol: true}}
+	manager.run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name == "systemctl" && len(args) > 0 && args[0] == "restart" {
+			return []byte("restart failed"), errors.New("exit 1")
+		}
+		return nil, nil
+	}
+	manager.probe = func(context.Context, string) error { return nil }
+	_, err := manager.apply(context.Background(), []InboundSpec{{Source: "vps-panel", ID: "1", Listen: "0.0.0.0", Port: 443, Security: "reality", ServerName: "www.example.com", RealityTarget: "www.example.com:443", PrivateKey: "private", ShortID: "0123456789abcdef"}})
+	if err == nil || !strings.Contains(err.Error(), "restart failed") {
+		t.Fatalf("apply error = %v", err)
+	}
+	data, _ := os.ReadFile(configPath)
+	if string(data) == "old\n" || !strings.Contains(string(data), `"dokodemo-door"`) {
+		t.Fatalf("new config was not preserved: %q", data)
+	}
+}
+
+func TestProbeSpecsIncludesAPI(t *testing.T) {
+	manager := &xrayManager{config: RuntimeConfig{StatsAddress: "127.0.0.1:10085"}}
+	var addresses []string
+	manager.probe = func(_ context.Context, address string) error {
+		addresses = append(addresses, address)
+		return nil
+	}
+	if err := manager.probeSpecs(context.Background(), []InboundSpec{{Port: 443}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(addresses, ",") != "127.0.0.1:10085,127.0.0.1:443" {
+		t.Fatalf("probed = %+v", addresses)
 	}
 }

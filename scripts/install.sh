@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="matthewlu070111/BoardRay"
-DEFAULT_AGENT_VERSION="v0.3.2"
+DEFAULT_AGENT_VERSION="v0.4.0"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -27,7 +27,7 @@ fallback_site=""
 fallback_site_set=false
 vps_panel_url=""
 vps_enrollment_token=""
-vps_agent_version="v0.20.2"
+vps_agent_version="v0.25.0"
 unattended=false
 update_only=false
 
@@ -118,6 +118,7 @@ if ! $update_only && [[ "$mode" != "boardless" ]]; then
 fi
 
 mkdir -p "$install_dir/bin" "$install_dir/xray" "$install_dir/acme" "$config_dir/xray" "$state_dir"
+rm -f "$config_dir/xray/config.previous.json"
 chmod 700 "$config_dir" "$config_dir/xray" "$state_dir"
 
 tmp_dir="$(mktemp -d /tmp/boardray-install.XXXXXX)"
@@ -163,7 +164,7 @@ else
     --arg private "$reality_private" --arg public "$reality_public" --arg short "$reality_short_id" \
     --arg vps_panel "$vps_panel_url" --arg vps_enrollment "$vps_enrollment_token" --arg vps_version "$vps_agent_version" \
     --arg install_dir "$install_dir" \
-    '{mode:$mode,runtime:{state_path:"/var/lib/boardray/state.json",xray_binary:($install_dir+"/xray/xray"),xray_config:"/etc/boardray/xray/config.json",xray_previous:"/etc/boardray/xray/config.previous.json",xray_service:"boardray-xray.service",cert_dir:"/etc/boardray/xray/certs",acme_script:($install_dir+"/acme/acme.sh"),acme_home:"/var/lib/boardray/acme",fallback_address:"127.0.0.1:18080",stats_address:"127.0.0.1:10085",stale_grace_seconds:900}}
+    '{mode:$mode,runtime:{state_path:"/var/lib/boardray/state.json",xray_binary:($install_dir+"/xray/xray"),xray_config:"/etc/boardray/xray/config.json",xray_service:"boardray-xray.service",cert_dir:"/etc/boardray/xray/certs",acme_script:($install_dir+"/acme/acme.sh"),acme_home:"/var/lib/boardray/acme",fallback_address:"127.0.0.1:18080",stats_address:"127.0.0.1:10085",stale_grace_seconds:900}}
       + (if $mode == "vps-panel" then {} else {boardless:{panel_url:$panel,node_token:$node_token,preset:$preset,domain:$domain,acme_email:$email,reality_target:$target,reality_private_key:$private,reality_public_key:$public,reality_short_id:$short}} end)
       + (if $mode == "boardless" then {} else {vps_panel:{panel_url:$vps_panel,enrollment_token:$vps_enrollment,announced_version:$vps_version}} end)' \
     > "$tmp_dir/config.json"
@@ -228,27 +229,10 @@ server {
 EOF
 
 nginx_config="/etc/nginx/conf.d/boardray.conf"
-if [[ -f "$nginx_config" ]]; then
-  cp "$nginx_config" "$tmp_dir/boardray-nginx.previous.conf"
-fi
 install -m 0644 "$tmp_dir/boardray-nginx.conf" "$nginx_config"
-if ! nginx -t; then
-  if [[ -f "$tmp_dir/boardray-nginx.previous.conf" ]]; then
-    install -m 0644 "$tmp_dir/boardray-nginx.previous.conf" "$nginx_config"
-  else
-    rm -f "$nginx_config"
-  fi
-  die "generated nginx configuration is invalid; previous BoardRay Nginx configuration restored"
-fi
-if ! systemctl enable --now nginx.service || ! systemctl reload nginx.service; then
-  if [[ -f "$tmp_dir/boardray-nginx.previous.conf" ]]; then
-    install -m 0644 "$tmp_dir/boardray-nginx.previous.conf" "$nginx_config"
-  else
-    rm -f "$nginx_config"
-  fi
-  nginx -t >/dev/null 2>&1 && systemctl reload nginx.service 2>/dev/null || true
-  die "nginx could not start with the BoardRay configuration; previous configuration restored"
-fi
+nginx -t || die "generated nginx configuration is invalid"
+systemctl enable --now nginx.service || die "nginx could not start with the BoardRay configuration"
+systemctl reload nginx.service || die "nginx could not reload the BoardRay configuration"
 
 jq --arg fallback_site "$fallback_site" \
   '.runtime.fallback_address = "127.0.0.1:8001"

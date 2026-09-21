@@ -69,6 +69,9 @@ func (v *vpsPanelClient) reportTraffic(ctx context.Context, counters map[string]
 		if !strings.HasPrefix(id, "vp-client-") {
 			continue
 		}
+		if value.Uplink == 0 && value.Downlink == 0 {
+			continue
+		}
 		clientID, err := strconv.ParseInt(strings.TrimPrefix(id, "vp-client-"), 10, 64)
 		if err != nil || clientID <= 0 {
 			continue

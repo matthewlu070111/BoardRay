@@ -71,9 +71,6 @@ func defaults(value *Config) {
 	if value.Runtime.XrayConfig == "" {
 		value.Runtime.XrayConfig = "/etc/boardray/xray/config.json"
 	}
-	if value.Runtime.XrayPrevious == "" {
-		value.Runtime.XrayPrevious = "/etc/boardray/xray/config.previous.json"
-	}
 	if value.Runtime.XrayService == "" {
 		value.Runtime.XrayService = "boardray-xray.service"
 	}
@@ -99,7 +96,7 @@ func defaults(value *Config) {
 		value.Runtime.StaleGraceSeconds = 900
 	}
 	if value.VPSPanel != nil && value.VPSPanel.AnnouncedVersion == "" {
-		value.VPSPanel.AnnouncedVersion = "v0.20.2"
+		value.VPSPanel.AnnouncedVersion = VPSPanelVersion
 	}
 }
 
