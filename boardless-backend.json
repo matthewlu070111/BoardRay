@@ -1,0 +1,182 @@
+{
+  "recognitionCode": "BOARDLESS_BACKEND_REPOSITORY_V1",
+  "schemaVersion": 1,
+  "backendId": "io.github.matthewlu070111.boardray",
+  "name": "BoardRay Xray Agent",
+  "version": "v0.4.1",
+  "panelApiVersion": "v1",
+  "capabilities": ["nodeTrafficLimit"],
+  "install": {
+    "script": "scripts/install.sh",
+    "sha256": "d0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074",
+    "uninstallScript": "scripts/uninstall.sh"
+  },
+  "presets": [
+    {
+      "id": "vless-tcp-xtls-vision",
+      "name": "VLESS TCP XTLS Vision",
+      "protocol": "vless",
+      "description": "自动 ACME 证书与 Nginx 双 ALPN 回落",
+      "config": {
+        "server": "{{ input.server }}",
+        "port": 443,
+        "transport": "tcp",
+        "tls": true,
+        "sni": "{{ input.sni }}",
+        "flow": "xtls-rprx-vision",
+        "acmeEmail": "{{ input.acmeEmail }}"
+      },
+      "inputs": [
+        {
+          "key": "server",
+          "label": "节点域名",
+          "type": "hostname",
+          "installArg": "--domain",
+          "placeholder": "node.example.com",
+          "help": "请先将域名解析到这台节点服务器的公网 IP"
+        },
+        {
+          "key": "sni",
+          "label": "TLS SNI",
+          "type": "hostname",
+          "placeholder": "node.example.com",
+          "help": "通常与节点域名相同"
+        },
+        {
+          "key": "acmeEmail",
+          "label": "ACME 邮箱",
+          "type": "email",
+          "installArg": "--acme-email",
+          "placeholder": "ops@example.com",
+          "help": "用于申请和续期 TLS 证书"
+        },
+        {
+          "key": "fallbackSite",
+          "label": "回落站点",
+          "type": "hostname",
+          "required": false,
+          "default": "www.lovelive-anime.jp",
+          "installArg": "--fallback-site",
+          "placeholder": "www.lovelive-anime.jp",
+          "help": "Nginx 会把非 VLESS 的 HTTPS 请求反代到该站点"
+        },
+        {
+          "key": "enableVpsPanel",
+          "label": "同时同步到 VPS Panel",
+          "type": "checkbox",
+          "required": false,
+          "default": "false",
+          "installArg": "--mode",
+          "checkedValue": "both",
+          "uncheckedValue": "boardless",
+          "help": "启用后，BoardRay 会把 BoardLess 与 VPS Panel 的入站合并到同一个 Xray 进程"
+        },
+        {
+          "key": "vpsPanelUrl",
+          "label": "VPS Panel 地址",
+          "type": "url",
+          "placeholder": "https://vps-panel.example.com",
+          "installArg": "--vps-panel-url",
+          "when": { "key": "enableVpsPanel", "equals": "true" }
+        },
+        {
+          "key": "vpsEnrollmentToken",
+          "label": "VPS Panel 注册令牌",
+          "type": "password",
+          "placeholder": "一次性 Enrollment Token",
+          "installArg": "--vps-enrollment-token",
+          "sensitive": true,
+          "when": { "key": "enableVpsPanel", "equals": "true" },
+          "help": "仅用于本次安装，不会保存在 BoardLess 节点配置或安装令牌记录中"
+        },
+        {
+          "key": "vpsAgentVersion",
+          "label": "VPS Panel Agent 兼容版本",
+          "type": "text",
+          "default": "v0.25.0",
+          "installArg": "--vps-agent-version",
+          "when": { "key": "enableVpsPanel", "equals": "true" }
+        }
+      ],
+      "generatedOutputs": []
+    },
+    {
+      "id": "vless-tcp-xtls-vision-reality",
+      "name": "VLESS TCP XTLS Vision REALITY",
+      "protocol": "vless",
+      "description": "本机生成 REALITY 密钥与 Short ID",
+      "config": {
+        "server": "{{ input.server }}",
+        "port": 443,
+        "transport": "tcp",
+        "tls": true,
+        "sni": "{{ input.sni }}",
+        "flow": "xtls-rprx-vision",
+        "realityTarget": "{{ input.realityTarget }}",
+        "realityPublicKey": "{{ generated.realityPublicKey }}",
+        "shortId": "{{ generated.shortId }}"
+      },
+      "inputs": [
+        {
+          "key": "server",
+          "label": "节点地址",
+          "type": "hostname",
+          "placeholder": "node.example.com",
+          "help": "填写客户端可以访问的域名或公网 IP"
+        },
+        {
+          "key": "sni",
+          "label": "REALITY SNI",
+          "type": "hostname",
+          "placeholder": "www.microsoft.com"
+        },
+        {
+          "key": "realityTarget",
+          "label": "REALITY 目标",
+          "type": "text",
+          "installArg": "--reality-target",
+          "placeholder": "www.microsoft.com:443",
+          "help": "目标必须支持 TLS 1.3，并包含端口"
+        },
+        {
+          "key": "enableVpsPanel",
+          "label": "同时同步到 VPS Panel",
+          "type": "checkbox",
+          "required": false,
+          "default": "false",
+          "installArg": "--mode",
+          "checkedValue": "both",
+          "uncheckedValue": "boardless",
+          "help": "启用后，BoardRay 会把 BoardLess 与 VPS Panel 的入站合并到同一个 Xray 进程"
+        },
+        {
+          "key": "vpsPanelUrl",
+          "label": "VPS Panel 地址",
+          "type": "url",
+          "placeholder": "https://vps-panel.example.com",
+          "installArg": "--vps-panel-url",
+          "when": { "key": "enableVpsPanel", "equals": "true" }
+        },
+        {
+          "key": "vpsEnrollmentToken",
+          "label": "VPS Panel 注册令牌",
+          "type": "password",
+          "placeholder": "一次性 Enrollment Token",
+          "installArg": "--vps-enrollment-token",
+          "sensitive": true,
+          "when": { "key": "enableVpsPanel", "equals": "true" },
+          "help": "仅用于本次安装，不会保存在 BoardLess 节点配置或安装令牌记录中"
+        },
+        {
+          "key": "vpsAgentVersion",
+          "label": "VPS Panel Agent 兼容版本",
+          "type": "text",
+          "default": "v0.25.0",
+          "installArg": "--vps-agent-version",
+          "when": { "key": "enableVpsPanel", "equals": "true" }
+        }
+      ],
+      "generatedOutputs": ["realityPublicKey", "shortId"]
+    }
+  ]
+}

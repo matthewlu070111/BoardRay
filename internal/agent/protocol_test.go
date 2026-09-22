@@ -117,13 +117,32 @@ func TestManifestMatchesInstallScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	match := regexp.MustCompile(`"sha256": "([0-9a-f]{64})"`).FindSubmatch(readme)
+	manifest, err := os.ReadFile(filepath.Join(root, "boardless-backend.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(manifest) {
+		t.Fatal("backend manifest is not valid JSON")
+	}
+	match := regexp.MustCompile(`"sha256": "([0-9a-f]{64})"`).FindSubmatch(manifest)
 	sum := sha256.Sum256(script)
 	if len(match) != 2 || string(match[1]) != hex.EncodeToString(sum[:]) {
-		t.Fatalf("README install hash is stale")
+		t.Fatalf("backend manifest install hash is stale")
 	}
-	if !strings.Contains(string(readme), "<!-- BOARDLESS_BACKEND_REPOSITORY_V1 -->") {
-		t.Fatal("BoardLess recognition code is missing")
+	if !strings.Contains(string(manifest), `"recognitionCode": "BOARDLESS_BACKEND_REPOSITORY_V1"`) {
+		t.Fatal("BoardLess recognition code is missing from backend manifest")
+	}
+	if strings.Contains(string(readme), "<!-- boardless:backend:start -->") {
+		t.Fatal("README must link to the standalone backend manifest instead of embedding it")
+	}
+	uninstall, err := os.ReadFile(filepath.Join(root, "scripts", "uninstall.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	uninstallMatch := regexp.MustCompile(`echo '([0-9a-f]{64})  /tmp/boardray-uninstall\.sh'`).FindSubmatch(readme)
+	uninstallSum := sha256.Sum256(uninstall)
+	if len(uninstallMatch) != 2 || string(uninstallMatch[1]) != hex.EncodeToString(uninstallSum[:]) {
+		t.Fatal("README uninstall hash is stale")
 	}
 	for _, required := range []string{"apt-get install --no-install-recommends -y nginx", "nginx -t", "fallback_proxy_protocol = true", "--force-fallback", "fallback_always_on", "systemctl enable --now nginx.service"} {
 		if !strings.Contains(string(script), required) {
