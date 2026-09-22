@@ -26,7 +26,7 @@
     "fallback_h2_address": "127.0.0.1:8002",
     "fallback_proxy_protocol": true,
     "fallback_site": "www.lovelive-anime.jp",
-    "fallback_always_on": true,
+    "fallback_always_on": false,
     "stats_address": "127.0.0.1:10085",
     "stale_grace_seconds": 900
   }

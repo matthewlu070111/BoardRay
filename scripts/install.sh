@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="matthewlu070111/BoardRay"
-DEFAULT_AGENT_VERSION="v0.4.1"
+DEFAULT_AGENT_VERSION="v0.4.2"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -244,12 +244,12 @@ nginx -t || die "generated nginx configuration is invalid"
 systemctl enable --now nginx.service || die "nginx could not start with the BoardRay configuration"
 systemctl reload nginx.service || die "nginx could not reload the BoardRay configuration"
 
-jq --arg fallback_site "$fallback_site" --argjson force_fallback "$force_fallback" \
+jq --arg fallback_site "$fallback_site" \
   '.runtime.fallback_address = "127.0.0.1:8001"
    | .runtime.fallback_h2_address = "127.0.0.1:8002"
    | .runtime.fallback_proxy_protocol = true
    | .runtime.fallback_site = $fallback_site
-   | if $force_fallback then .runtime.fallback_always_on = true else . end' \
+   | .runtime.fallback_always_on = ((.boardless.preset // "") == "vless-tcp-xtls-vision")' \
   "$config_path" > "$tmp_dir/config-with-nginx.json"
 install -m 0600 "$tmp_dir/config-with-nginx.json" "$config_path"
 

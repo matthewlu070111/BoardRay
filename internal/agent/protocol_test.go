@@ -144,7 +144,7 @@ func TestManifestMatchesInstallScript(t *testing.T) {
 	if len(uninstallMatch) != 2 || string(uninstallMatch[1]) != hex.EncodeToString(uninstallSum[:]) {
 		t.Fatal("README uninstall hash is stale")
 	}
-	for _, required := range []string{"apt-get install --no-install-recommends -y nginx", "nginx -t", "fallback_proxy_protocol = true", "--force-fallback", "fallback_always_on", "systemctl enable --now nginx.service"} {
+	for _, required := range []string{"apt-get install --no-install-recommends -y nginx", "nginx -t", "fallback_proxy_protocol = true", "--force-fallback", `.runtime.fallback_always_on = ((.boardless.preset // "") == "vless-tcp-xtls-vision")`, "systemctl enable --now nginx.service"} {
 		if !strings.Contains(string(script), required) {
 			t.Fatalf("install script does not enforce Nginx fallback: missing %q", required)
 		}

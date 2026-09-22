@@ -3,12 +3,12 @@
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "v0.4.1",
+  "version": "v0.4.2",
   "panelApiVersion": "v1",
   "capabilities": ["nodeTrafficLimit"],
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "d0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074",
+    "sha256": "1f0f8434dc6092226b5d60ca7902086c2485aa33ac847f8c792a146409c8f85c",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [

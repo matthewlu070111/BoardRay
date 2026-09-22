@@ -62,6 +62,10 @@ func loadConfig(path string) (Config, error) {
 }
 
 func defaults(value *Config) {
+	// TLS termination and its landing-page fallback are one runtime unit. Keep
+	// the TLS listener available even while BoardLess has no approved users;
+	// REALITY terminates differently and must never receive a TLS fallback.
+	value.Runtime.FallbackAlwaysOn = value.BoardLess != nil && value.BoardLess.Preset == PresetTLS
 	if value.Runtime.StatePath == "" {
 		value.Runtime.StatePath = "/var/lib/boardray/state.json"
 	}

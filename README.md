@@ -82,22 +82,22 @@ sudo bash scripts/install.sh \
 
 ```bash
 wget -O /tmp/boardray-install.sh \
-  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/install.sh
-echo 'd0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074  /tmp/boardray-install.sh' | sha256sum -c -
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.2/scripts/install.sh
+echo '1f0f8434dc6092226b5d60ca7902086c2485aa33ac847f8c792a146409c8f85c  /tmp/boardray-install.sh' | sha256sum -c -
 sudo bash /tmp/boardray-install.sh --update --unattended
 ```
 
 ### 强制补齐网页落地
 
 已有节点缺少网页落地，或需要重新生成受管 Nginx 回落配置时，可使用固定版本的
-[网页落地更新脚本](https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/install.sh)。下面的命令会安装
-`v0.4.1`、重建 `/etc/nginx/conf.d/boardray.conf`，并把网页落地常驻开关写回
+[网页落地更新脚本](https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.2/scripts/install.sh)。下面的命令会安装
+`v0.4.2`、重建 `/etc/nginx/conf.d/boardray.conf`，并把网页落地常驻开关写回
 `/etc/boardray/config.json`：
 
 ```bash
 wget -O /tmp/boardray-fallback-update.sh \
-  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/install.sh
-echo 'd0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074  /tmp/boardray-fallback-update.sh' | sha256sum -c -
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.2/scripts/install.sh
+echo '1f0f8434dc6092226b5d60ca7902086c2485aa33ac847f8c792a146409c8f85c  /tmp/boardray-fallback-update.sh' | sha256sum -c -
 sudo bash /tmp/boardray-fallback-update.sh \
   --update \
   --fallback-site www.lovelive-anime.jp \
@@ -106,9 +106,9 @@ sudo bash /tmp/boardray-fallback-update.sh \
 ```
 
 将 `www.lovelive-anime.jp` 替换为需要展示的 HTTPS 落地站点域名；只接受主机名，不要填写协议、路径或查询参数。
-该命令会强制覆盖已有的 `runtime.fallback_site`，并设置 `runtime.fallback_always_on=true`。之后即使节点尚未审核、
-BoardLess 暂时不可用或有效代理用户为零，TLS 端口仍只为网页落地保持监听；普通更新仍会保留原值和开关。
-`--force-fallback` 仅支持 `vless-tcp-xtls-vision` TLS 预设，REALITY 预设会被安装器明确拒绝。
+该命令会强制覆盖已有的 `runtime.fallback_site`。从 v0.4.2 开始，`vless-tcp-xtls-vision` TLS 预设始终设置
+`runtime.fallback_always_on=true`：即使节点尚未审核、BoardLess 暂时不可用或有效代理用户为零，TLS 端口仍只为网页落地保持监听。
+`--force-fallback` 为旧版更新命令保留兼容；REALITY 预设不使用 TLS fallback，传入该参数会被安装器明确拒绝。
 
 更新完成后确认版本和服务状态：
 
@@ -193,7 +193,7 @@ journalctl -u boardray-agent -f
 
 ```bash
 wget -O /tmp/boardray-uninstall.sh \
-  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/uninstall.sh
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.2/scripts/uninstall.sh
 echo 'b77b709518d5c5017d4d27e8ef258f4299a8ce73e9f462ca71776a25057583f9  /tmp/boardray-uninstall.sh' | sha256sum -c -
 ```
 

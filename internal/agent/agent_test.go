@@ -263,6 +263,23 @@ func TestVPSPanelVersionDefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestFallbackDefaultsFollowBoardLessPreset(t *testing.T) {
+	tls := Config{BoardLess: &BoardLessConfig{Preset: PresetTLS}}
+	defaults(&tls)
+	if !tls.Runtime.FallbackAlwaysOn {
+		t.Fatal("TLS preset must always keep its fallback listener online")
+	}
+
+	reality := Config{
+		Runtime:   RuntimeConfig{FallbackAlwaysOn: true},
+		BoardLess: &BoardLessConfig{Preset: PresetReality},
+	}
+	defaults(&reality)
+	if reality.Runtime.FallbackAlwaysOn {
+		t.Fatal("REALITY preset must not enable the TLS fallback listener")
+	}
+}
+
 func TestXrayValidationFailureKeepsCurrentConfig(t *testing.T) {
 	directory := t.TempDir()
 	configPath := filepath.Join(directory, "config.json")
