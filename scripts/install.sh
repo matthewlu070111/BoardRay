@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="matthewlu070111/BoardRay"
-DEFAULT_AGENT_VERSION="v0.4.0"
+DEFAULT_AGENT_VERSION="v0.4.1"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -25,6 +25,7 @@ reality_public=""
 reality_short_id=""
 fallback_site=""
 fallback_site_set=false
+force_fallback=false
 vps_panel_url=""
 vps_enrollment_token=""
 vps_agent_version="v0.25.0"
@@ -51,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --reality-public-key) need_value "$@"; reality_public="$2"; shift 2 ;;
     --reality-short-id) need_value "$@"; reality_short_id="$2"; shift 2 ;;
     --fallback-site) need_value "$@"; fallback_site="$2"; fallback_site_set=true; shift 2 ;;
+    --force-fallback) force_fallback=true; shift ;;
     --vps-panel-url) need_value "$@"; vps_panel_url="${2%/}"; shift 2 ;;
     --vps-enrollment-token) need_value "$@"; vps_enrollment_token="$2"; shift 2 ;;
     --vps-agent-version) need_value "$@"; vps_agent_version="$2"; shift 2 ;;
@@ -67,6 +69,7 @@ done
 # BoardLess: --panel-url URL (--node-token TOKEN|--install-token TOKEN) --preset ID
 # TLS: --domain HOST --acme-email EMAIL
 # Nginx fallback: [--fallback-site HOST]
+# Keep the TLS landing page online without an approved proxy inbound: [--force-fallback]
 # REALITY: --reality-target HOST:PORT [--reality-private-key KEY --reality-public-key KEY --reality-short-id HEX]
 # vps-panel: --vps-panel-url URL --vps-enrollment-token TOKEN
 # Update an existing installation: --update
@@ -112,6 +115,13 @@ elif [[ "$mode" != "vps-panel" ]]; then
       ;;
     *) die "unsupported preset: $preset" ;;
   esac
+fi
+if $force_fallback; then
+  fallback_preset="$preset"
+  if $update_only; then
+    fallback_preset="$(jq -r '.boardless.preset // empty' "$config_path")"
+  fi
+  [[ "$fallback_preset" == "vless-tcp-xtls-vision" ]] || die "--force-fallback requires the BoardLess TLS preset"
 fi
 if ! $update_only && [[ "$mode" != "boardless" ]]; then
   [[ -n "$vps_panel_url" && -n "$vps_enrollment_token" ]] || die "vps-panel mode requires its URL and enrollment token"
@@ -234,11 +244,12 @@ nginx -t || die "generated nginx configuration is invalid"
 systemctl enable --now nginx.service || die "nginx could not start with the BoardRay configuration"
 systemctl reload nginx.service || die "nginx could not reload the BoardRay configuration"
 
-jq --arg fallback_site "$fallback_site" \
+jq --arg fallback_site "$fallback_site" --argjson force_fallback "$force_fallback" \
   '.runtime.fallback_address = "127.0.0.1:8001"
    | .runtime.fallback_h2_address = "127.0.0.1:8002"
    | .runtime.fallback_proxy_protocol = true
-   | .runtime.fallback_site = $fallback_site' \
+   | .runtime.fallback_site = $fallback_site
+   | if $force_fallback then .runtime.fallback_always_on = true else . end' \
   "$config_path" > "$tmp_dir/config-with-nginx.json"
 install -m 0600 "$tmp_dir/config-with-nginx.json" "$config_path"
 

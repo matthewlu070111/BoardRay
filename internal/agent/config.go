@@ -154,6 +154,9 @@ func validateConfig(value Config) error {
 	if strings.TrimSpace(value.Runtime.FallbackSite) == "" || strings.ContainsAny(value.Runtime.FallbackSite, "/?#") {
 		return errors.New("fallback site must be a hostname")
 	}
+	if value.Runtime.FallbackAlwaysOn && (value.BoardLess == nil || value.BoardLess.Preset != PresetTLS) {
+		return errors.New("always-on fallback requires the BoardLess TLS preset")
+	}
 	return nil
 }
 

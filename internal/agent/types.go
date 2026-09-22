@@ -51,6 +51,7 @@ type RuntimeConfig struct {
 	FallbackH2Address     string `json:"fallback_h2_address"`
 	FallbackProxyProtocol bool   `json:"fallback_proxy_protocol"`
 	FallbackSite          string `json:"fallback_site"`
+	FallbackAlwaysOn      bool   `json:"fallback_always_on"`
 	StatsAddress          string `json:"stats_address"`
 	StaleGraceSeconds     int64  `json:"stale_grace_seconds"`
 }

@@ -21,12 +21,12 @@ BoardRay 是一个由 Xray 驱动的节点 Agent。它可以同时接入 [BoardL
   "schemaVersion": 1,
   "backendId": "io.github.matthewlu070111.boardray",
   "name": "BoardRay Xray Agent",
-  "version": "v0.4.0",
+  "version": "v0.4.1",
   "panelApiVersion": "v1",
   "capabilities": ["nodeTrafficLimit"],
   "install": {
     "script": "scripts/install.sh",
-    "sha256": "9ff5d70ae7944921a8b81162ae446904acde896e82ca72aa705b231ce4181f31",
+    "sha256": "d0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074",
     "uninstallScript": "scripts/uninstall.sh"
   },
   "presets": [
@@ -268,10 +268,33 @@ sudo bash scripts/install.sh \
 
 ```bash
 wget -O /tmp/boardray-install.sh \
-  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.0/scripts/install.sh
-echo '9ff5d70ae7944921a8b81162ae446904acde896e82ca72aa705b231ce4181f31  /tmp/boardray-install.sh' | sha256sum -c -
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/install.sh
+echo 'd0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074  /tmp/boardray-install.sh' | sha256sum -c -
 sudo bash /tmp/boardray-install.sh --update --unattended
 ```
+
+### 强制补齐网页落地
+
+已有节点缺少网页落地，或需要重新生成受管 Nginx 回落配置时，可使用固定版本的
+[网页落地更新脚本](https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/install.sh)。下面的命令会安装
+`v0.4.1`、重建 `/etc/nginx/conf.d/boardray.conf`，并把网页落地常驻开关写回
+`/etc/boardray/config.json`：
+
+```bash
+wget -O /tmp/boardray-fallback-update.sh \
+  https://raw.githubusercontent.com/matthewlu070111/BoardRay/v0.4.1/scripts/install.sh
+echo 'd0d27c3013a6a105cad670c7f1fe608417fb61e68dd48e1fd705b98d0acc7074  /tmp/boardray-fallback-update.sh' | sha256sum -c -
+sudo bash /tmp/boardray-fallback-update.sh \
+  --update \
+  --fallback-site www.lovelive-anime.jp \
+  --force-fallback \
+  --unattended
+```
+
+将 `www.lovelive-anime.jp` 替换为需要展示的 HTTPS 落地站点域名；只接受主机名，不要填写协议、路径或查询参数。
+该命令会强制覆盖已有的 `runtime.fallback_site`，并设置 `runtime.fallback_always_on=true`。之后即使节点尚未审核、
+BoardLess 暂时不可用或有效代理用户为零，TLS 端口仍只为网页落地保持监听；普通更新仍会保留原值和开关。
+`--force-fallback` 仅支持 `vless-tcp-xtls-vision` TLS 预设，REALITY 预设会被安装器明确拒绝。
 
 更新完成后确认版本和服务状态：
 

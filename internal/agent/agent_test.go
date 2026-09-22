@@ -165,6 +165,16 @@ func TestBoardLessInboundFiltersUsers(t *testing.T) {
 	}
 }
 
+func TestBoardLessFallbackInboundHasNoProxyClients(t *testing.T) {
+	value, enabled := boardLessFallbackInbound(&BoardLessConfig{Preset: PresetTLS, Domain: "node.example.com", ACMEEmail: "ops@example.com"})
+	if !enabled || value.Port != 443 || value.Security != "tls" || value.ServerName != "node.example.com" || len(value.Clients) != 0 {
+		t.Fatalf("fallback inbound = %+v, %v", value, enabled)
+	}
+	if _, enabled := boardLessFallbackInbound(&BoardLessConfig{Preset: PresetReality}); enabled {
+		t.Fatal("REALITY must not create an always-on TLS fallback")
+	}
+}
+
 func TestMergeBoardLessWinsPortConflict(t *testing.T) {
 	boardless := &InboundSpec{Source: "boardless", ID: "one", Port: 443}
 	vps := []InboundSpec{{Source: "vps-panel", ID: "conflict", Port: 443}, {Source: "vps-panel", ID: "ok", Port: 8443}}

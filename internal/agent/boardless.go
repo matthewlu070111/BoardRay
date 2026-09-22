@@ -75,6 +75,16 @@ func boardLessInbound(snapshot *BoardLessSnapshot, config *BoardLessConfig, now 
 	return value, true, nil
 }
 
+func boardLessFallbackInbound(config *BoardLessConfig) (InboundSpec, bool) {
+	if config == nil || config.Preset != PresetTLS || config.Domain == "" || config.ACMEEmail == "" {
+		return InboundSpec{}, false
+	}
+	return InboundSpec{
+		Source: "boardless", ID: "fallback", Listen: "0.0.0.0", Port: 443,
+		Security: "tls", ServerName: config.Domain, ACMEEmail: config.ACMEEmail,
+	}, true
+}
+
 func boardLessStatsID(userID string) string {
 	return "br-user-" + base64.RawURLEncoding.EncodeToString([]byte(userID))
 }

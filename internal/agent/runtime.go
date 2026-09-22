@@ -146,6 +146,11 @@ func (a *runtimeAgent) sync(ctx context.Context) error {
 		} else if enabled {
 			boardlessSpec = &value
 		}
+		if boardlessSpec == nil && a.config.Runtime.FallbackAlwaysOn {
+			if value, enabled := boardLessFallbackInbound(a.config.BoardLess); enabled {
+				boardlessSpec = &value
+			}
+		}
 	}
 	vpsSpecs, vpsValidationErr := vpsInbounds(a.state.VPSDesired)
 	specs, compatibilityErr := mergeInbounds(boardlessSpec, vpsSpecs, vpsValidationErr)
